@@ -354,13 +354,20 @@ function _M.printAll(state)
   local results = {}
   accessAll(results, state)
   
+  local padded = {
+               -- "r3e_vec3_f64"
+    r3e_float64 = "r3e_float64 ",
+    r3e_float32 = "r3e_float32 ",
+    r3e_int32   = "r3e_int32   ",
+  }
+  
   for i,v in ipairs(properties) do
     local res = results[i]
     if (v[2] == "r3e_vec3_f64" or v[2] == "r3e_vec3_f32") then
       local v3length = math.sqrt(res[1]*res[1] + res[2]*res[2] + res[3]*res[3])
-      print(v[1],v[2], "{"..table.concat(res,",").."}", v3length)
+      print(v[2],v[1], "{"..table.concat(res,",").."}", v3length)
     else
-      print(v[1],v[2], res)
+      print(padded[v[2]],v[1], res)
     end
     
   end
