@@ -1,6 +1,6 @@
 local ffi = require "ffi"
 local r3e = require "r3e"
-
+local r3emap = require "r3emap"
 
 ffi.cdef ([[
 typedef struct  {
@@ -34,18 +34,18 @@ end
 
 local interpolator
 do
-  
-  local function lerp(a, b, t)
-    return a * (1-t) + b * t
-  end
+  local function lerp(a, b, t) return a * (1-t) + b * t  end
   
   -- create interpolator
   interpolator = function(stateOut, stateA, stateB, fracc)
     ffi.copy(stateOut, stateA, r3e.SHARED_SIZE)
 
-    -- interpolate 
+    -- interpolate at least time
     stateOut.Player.GameSimulationTime = lerp( stateA.Player.GameSimulationTime, stateB.Player.GameSimulationTime, fracc)
   end
+  
+  -- use full interpolator
+  interpolator = r3emap.makeInterpolator()
 end
 
 

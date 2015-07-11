@@ -7,7 +7,7 @@ local state        = ffi.new( r3e.SHARED_TYPE )
 
 local args = _ARGS or {...}
 
-local traceFileName = args[2] or "trace_150711_183527.r3t"
+local traceFileName = args[2] or "trace_test.r3t"
 
 local trace = r3etrace.loadTrace(traceFileName)
 

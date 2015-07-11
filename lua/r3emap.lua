@@ -278,6 +278,7 @@ end
 
 
 local properties = {}
+local propertiesRaw = {}
 do
   local r3e = require "r3e"
   local tx  = ffiToApi("--[[ r3e | blah\n\n"..r3e.DEFS.."]]")
@@ -286,7 +287,7 @@ do
   local api = fn()
   api = api.r3e
 
-  local function getAllProperties(tab, classname, prepend)
+  local function getAllProperties(tab, classname, prepend, raw)
     local class = api.childs[classname]
     assert(class, classname)
     for i,v in pairs(class.childs) do
@@ -294,10 +295,10 @@ do
       else
         if (v.valuetype) then
           -- special case vectors
-          if (v.valuetype == "r3e.r3e_vec3_f64" or v.valuetype == "r3e.r3e_vec3_f32") then
+          if (not raw and (v.valuetype == "r3e.r3e_vec3_f64" or v.valuetype == "r3e.r3e_vec3_f32")) then
             table.insert(tab,{prepend..i,v.description})
           else
-            getAllProperties(tab, v.valuetype:sub(5,-1), prepend..i..".")
+            getAllProperties(tab, v.valuetype:sub(5,-1), prepend..i..".", raw)
           end
         else
           table.insert(tab,{prepend..i,v.description})
@@ -308,7 +309,9 @@ do
 
 
   getAllProperties(properties, "r3e_shared", "")
+  getAllProperties(propertiesRaw, "r3e_shared", "", true)
   table.sort(properties, function(a,b) return a[1] < b[1] end)
+  table.sort(propertiesRaw, function(a,b) return a[1] < b[1] end)
 end
 
 local _M = {}
@@ -332,6 +335,26 @@ function _M.makeAccessor(tab)
   end
   
   local fn,err = loadstring(str)
+  assert(fn,err)
+  
+  return fn
+end
+
+function _M.makeInterpolator()
+  local str = "local stateOut, stateA, stateB, fracc = ...\n"
+  str  = str.."local function lerp(a, b, t) return a * (1-t) + b * t  end\n"
+  
+  for i,v in ipairs(propertiesRaw) do
+    local k = v[1]
+    if (v[2] == "r3e_int32") then
+      str = str.."stateOut."..k.." = stateA."..k.."\n"
+    else
+      str = str.."stateOut."..k.." = lerp(stateA."..k..", stateB."..k..", fracc)\n"
+    end
+  end
+  
+  local fn,err = loadstring(str)
+  assert(fn,err)
   
   return fn
 end

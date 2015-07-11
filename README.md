@@ -17,7 +17,7 @@ Allows you to replay a trace, useful for debugging tools that also make use of t
 bridge of R3E
 
 * Currently the replay rate is ~15 milliseconds
-* For now only Player.GameSimulationTime is interpolated
+* All float values are linearly interpolated
 
 ### **r3e-trace-viewer.exe**
 
