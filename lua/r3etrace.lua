@@ -93,7 +93,7 @@ function _M.loadTrace(filename)
     local timeBegin = contentTimes[frameBegin]
     local time      = contentTimes[frameEnd] - timeBegin
     
-    print("lap "..(i+1), frameBegin, frameCount, "time", timeBegin, time)
+    print("lap "..(i), frameBegin, frameCount, "time", timeBegin, time)
     table.insert(lapData, { frameBegin = frameBegin, frameCount = frameCount, timeBegin=timeBegin, time=time} )
   end
   

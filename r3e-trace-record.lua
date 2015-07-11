@@ -32,6 +32,7 @@ end
 allocateChunk()
 
 
+local lastLap
 local function record(state, stateLast)
   if (frames >= framesMax) then
     allocateChunk()
@@ -44,8 +45,10 @@ local function record(state, stateLast)
   local dst = mem + f
   
   -- log lap begins
-  if (state.CompletedLaps > 0 and stateLast.CompletedLaps < state.CompletedLaps) then
+  if (state.LapTimeCurrent >= 0 and state.CompletedLaps >= 0 and lastLap ~= state.CompletedLaps)
+  then
     table.insert(lapBegins, frames)
+    lastLap = state.CompletedLaps
   end
   
   ffi.copy(dst, state, r3e.SHARED_SIZE)
@@ -89,7 +92,7 @@ local function saveTrace(filename)
 end
 
 if (true) then 
-  
+  print "runtest.."
   local begin = os.clock()
   for i=0,9 do
     state.Player.GameSimulationTime = os.clock()-begin
@@ -108,7 +111,7 @@ if (true) then
   test:getInterpolatedFrame( state, 0.045)
   print(state.Player.GameSimulationTime)
   
-  --return
+  print "runtest completed"
 end
 
 local mapping = nil
@@ -124,7 +127,9 @@ end
 local traceFileName
 local function beginSession(state)
   frames = 0
+  lapBegins = {0}
   diff = 0
+  lastLap = nil
   traceFileName = "trace_"..os.date("%y%m%d_%H%M%S")..".r3t"
   print("session begin",traceFileName)
 end
@@ -156,41 +161,37 @@ function update()
   -- update data
   mapping:readData( state )
   
-  -- detect new session
-  
-  local oldLastSimTime = lastGameSimTime
-  lastGameSimTime = state.Player.GameSimulationTime
-  
-  -- how long has the game been running?
-  local gameRunningTime = state.Player.GameSimulationTime;
-  -- if we've gone back in time, this means a new session has started - 
-  -- clear all the game state
-  if ((gameRunningTime <= delay or gameRunningTime < oldLastSimTime or 
-      state.Player.GameSimulationTime == oldLast)) 
-  then
+  -- no session?
+  -- FIXME detect if paused
+  if (state.SessionType == r3e.Session.Unavailable) then
     if (inSession) then
       endSession()
       inSession = false
     end
     inSession = false
+    return
   end
   
-  -- only run events if sim has progressed a bit
-  if (gameRunningTime < 2) then
-    return
-  elseif (not inSession) then
-    beginSession()
+  if (not inSession) then
+    beginSession(state)
     inSession = true
   end
   
+  -- detect paused...
   if (inSession) then
-    record(state, stateLast)
+    if (state.ControlType ~= r3e.Control.Unavailable) 
+    then
+      record(state, stateLast)
+    else
+      --print "skipping"
+    end
   end
   
   -- swap
   state,stateLast = stateLast,state
 end
 
+print "waiting..."
 while true do
   if (update()) then
     break
@@ -198,6 +199,5 @@ while true do
   
   utils.sleep( math.max(1,math.floor(pollrate)) )
 end
-
-
+print "terminated"
 
