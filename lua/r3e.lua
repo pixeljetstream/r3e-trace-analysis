@@ -354,7 +354,7 @@ typedef struct
     // ...
     r3e_cardamage CarDamage;
 } r3e_shared;
-]])
+]]
 
 -- windows internals
 ffi.cdef(R3E_DEFS)
