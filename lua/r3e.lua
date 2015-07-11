@@ -2,7 +2,7 @@ local ffi = require "ffi"
 
 local R3E_SHARED_MEMORY_NAME = "$Race$"
 
-ffi.cdef([[
+local R3E_DEFS = [[
   
 typedef int32_t r3e_int32;
 typedef float r3e_float32;
@@ -98,48 +98,61 @@ typedef struct
   // -1 = no data
   //  0 = not active
   //  1 = active
-  int Yellow;
-  int Blue;
-  int Black;
+  r3e_int32 Yellow;
+  r3e_int32 Blue;
+  r3e_int32 Black;
 } r3e_flags;
 
 typedef struct
 {
-  float Engine;
-  float Transmission;
-  float Aerodynamics;
-  float TireFrontLeft;
-  float TireFrontRight;
-  float TireRearLeft;
-  float TireRearRight;
+  r3e_float32 Engine;
+  r3e_float32 Transmission;
+  r3e_float32 Aerodynamics;
+  r3e_float32 TireFrontLeft;
+  r3e_float32 TireFrontRight;
+  r3e_float32 TireRearLeft;
+  r3e_float32 TireRearRight;
 } r3e_cardamage;
 
 typedef struct
 {
-  float FrontLeft;
-  float FrontRight;
-  float RearLeft;
-  float RearRight;
+  r3e_float32 FrontLeft;
+  r3e_float32 FrontRight;
+  r3e_float32 RearLeft;
+  r3e_float32 RearRight;
 } r3e_tirepressure;
 
 typedef struct
 {
-  float FrontLeft;
-  float FrontRight;
-  float RearLeft;
-  float RearRight;
+  r3e_float32 FrontLeft;
+  r3e_float32 FrontRight;
+  r3e_float32 RearLeft;
+  r3e_float32 RearRight;
 } r3e_braketemperatures;
 
 typedef struct
 {
+  // ...
+  r3e_int32 DriveThrough;
 
+  // ...
+  r3e_int32 StopAndGo;
+
+  // ...
+  r3e_int32 PitStop;
+
+  // ...
+  r3e_int32 TimeDeduction;
+
+  // ...
+  r3e_int32 SlowDown;
 } r3e_cuttrackpenalties;
 
 typedef struct
 {
-  float Sector1;
-  float Sector2;
-  float Sector3;
+  r3e_float32 Sector1;
+  r3e_float32 Sector2;
+  r3e_float32 Sector3;
 } r3e_sectors;
 
 typedef struct
@@ -344,6 +357,7 @@ typedef struct
 ]])
 
 -- windows internals
+ffi.cdef(R3E_DEFS)
 
 ffi.cdef([[
   typedef void* HANDLE;
@@ -458,7 +472,7 @@ local _M = {
   SHARED_TYPE = r3e_shared_type,
   SHARED_TYPE_NAME = "r3e_shared",
   SHARED_SIZE = r3e_shared_size,
-  
+  DEFS = R3E_DEFS,
   
   Session = {
       Unavailable = -1,
