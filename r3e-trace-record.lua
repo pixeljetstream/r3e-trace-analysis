@@ -4,7 +4,6 @@ local r3etrace     = require "r3etrace"
 local utils        = require "utils"
 
 ----------------------------------
-
 local stateLast    = ffi.new( r3e.SHARED_TYPE )
 local state        = ffi.new( r3e.SHARED_TYPE )
 
@@ -52,7 +51,7 @@ local function record(state, stateLast, time)
   
   -- log lap begins
   local timeValid = state.LapTimeCurrent >= 0
-  if (timeValid ~= lastTimeValid or state.CompletedLaps ~= lastLap)
+  if ((state.CompletedLaps <= 0 and timeValid ~= lastTimeValid) or state.CompletedLaps ~= lastLap)
   then
     table.insert(lapBegins, frames)
     lastLap       = state.CompletedLaps
