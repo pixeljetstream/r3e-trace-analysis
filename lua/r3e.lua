@@ -10,6 +10,81 @@ typedef double r3e_float64;
   
 #pragma pack(1)
 
+typedef enum
+{
+    R3E_SESSION_UNAVAILABLE = -1,
+    R3E_SESSION_PRACTICE = 0,
+    R3E_SESSION_QUALIFY = 1,
+    R3E_SESSION_RACE = 2,
+} r3e_session;
+
+typedef enum
+{
+    R3E_SESSION_PHASE_UNAVAILABLE = -1,
+
+    // Currently in garage
+    R3E_SESSION_PHASE_GARAGE = 1,
+
+    // Gridwalk or track walkthrough
+    R3E_SESSION_PHASE_GRIDWALK = 2,
+
+    // Formation lap, rolling start etc.
+    R3E_SESSION_PHASE_FORMATION = 3,
+
+    // Countdown to race is ongoing
+    R3E_SESSION_PHASE_COUNTDOWN = 4,
+
+    // Race is ongoing
+    R3E_SESSION_PHASE_GREEN = 5,
+
+    // End of session
+    R3E_SESSION_PHASE_CHECKERED = 6,
+} r3e_session_phase;
+
+typedef enum
+{
+    R3E_CONTROL_UNAVAILABLE = -1,
+
+    // Controlled by the actual player
+    R3E_CONTROL_PLAYER = 0,
+
+    // Controlled by AI
+    R3E_CONTROL_AI = 1,
+
+    // Controlled by a network entity of some sort
+    R3E_CONTROL_REMOTE = 2,
+
+    // Controlled by a replay or ghost
+    R3E_CONTROL_REPLAY = 3,
+} r3e_control;
+
+typedef enum
+{
+    R3E_PIT_WINDOW_UNAVAILABLE = -1,
+
+    // Pit stops are not enabled for this session
+    R3E_PIT_WINDOW_DISABLED = 0,
+
+    // Pit stops are enabled, but you're not allowed to perform one right now
+    R3E_PIT_WINDOW_CLOSED = 1,
+
+    // Allowed to perform a pit stop now
+    R3E_PIT_WINDOW_OPEN = 2,
+
+    // Currently performing the pit stop changes (changing driver, etc.)
+    R3E_PIT_WINDOW_STOPPED = 3,
+
+    // After the current mandatory pitstop have been completed
+    R3E_PIT_WINDOW_COMPLETED = 4,
+} r3e_pit_window;
+
+typedef enum
+{
+    R3E_TIRE_TYPE_UNAVAILABLE = -1,
+    R3E_TIRE_TYPE_OPTION = 0,
+    R3E_TIRE_TYPE_PRIME = 1,
+} r3e_tire_type;
+
 typedef struct
 {
     r3e_float32 X;
@@ -29,7 +104,7 @@ typedef struct
     r3e_float32 Pitch;
     r3e_float32 Yaw;
     r3e_float32 Roll;
-} r3e_orientation_f32;
+} r3e_ori_f32;
 
 typedef struct
 {
@@ -48,7 +123,7 @@ typedef struct
     r3e_float32 RearRight_Left;
     r3e_float32 RearRight_Center;
     r3e_float32 RearRight_Right;
-} r3e_tiretemps;
+} r3e_tire_temps;
 
 // High precision data for player's vehicle only
 typedef struct
@@ -112,7 +187,7 @@ typedef struct
   r3e_float32 TireFrontRight;
   r3e_float32 TireRearLeft;
   r3e_float32 TireRearRight;
-} r3e_cardamage;
+} r3e_car_damage;
 
 typedef struct
 {
@@ -120,7 +195,7 @@ typedef struct
   r3e_float32 FrontRight;
   r3e_float32 RearLeft;
   r3e_float32 RearRight;
-} r3e_tirepressure;
+} r3e_tire_pressure;
 
 typedef struct
 {
@@ -128,7 +203,7 @@ typedef struct
   r3e_float32 FrontRight;
   r3e_float32 RearLeft;
   r3e_float32 RearRight;
-} r3e_braketemperatures;
+} r3e_brake_temps;
 
 typedef struct
 {
@@ -146,7 +221,7 @@ typedef struct
 
   // ...
   r3e_int32 SlowDown;
-} r3e_cuttrackpenalties;
+} r3e_cut_track_penalties;
 
 typedef struct
 {
@@ -221,7 +296,7 @@ typedef struct
 
     // Temperature of three points across the tread of each tire
     // Unit: Celsius (C)
-    r3e_tiretemps TireTemp;
+    r3e_tire_temps TireTemp;
 
     // Number of penalties pending for the player
     r3e_int32 NumPenalties;
@@ -231,7 +306,7 @@ typedef struct
 
     // Pitch, yaw, roll
     // Unit: Radians (rad)
-    r3e_orientation_f32 CarOrientation;
+    r3e_ori_f32 CarOrientation;
 
     // Acceleration in three axes (X, Y, Z) of car body in local-space.
     // From car center, +X=left, +Y=up, +Z=back.
@@ -254,84 +329,102 @@ typedef struct
     // High precision data for player's vehicle only
     r3e_playerdata Player;
     
-    // ...
+    // The current race event index, for championships with multiple events
+    // Note: 0-indexed, -1 = N/A
     r3e_int32 EventIndex;
 
-    // ...
+    // Which session the player is in (practice, qualifying, race, etc.)
+    // Note: See the r3e_session enum
     r3e_int32 SessionType;
 
-    // ...
+    // Which phase the current session is in (gridwalk, countdown, green flag, etc.)
+    // Note: See the r3e_session_phase enum
     r3e_int32 SessionPhase;
 
-    // ...
+    // The current iteration of the current type of session (second qualifying session, etc.)
+    // Note: 0-indexed, -1 = N/A
     r3e_int32 SessionIteration;
 
-    // ...
+    // Which controller is currently controlling the player's car (AI, player, remote, etc.)
+    // Note: See the r3e_control enum
     r3e_int32 ControlType;
 
-    // ...
+    // How pressed the throttle pedal is
+    // Range: 0.0 - 1.0
     r3e_float32 ThrottlePedal;
 
-    // ...
+    // How pressed the brake pedal is (-1.0 = N/A)
+    // Range: 0.0 - 1.0
     r3e_float32 BrakePedal;
 
-    // ...
+    // How pressed the clutch pedal is (-1.0 = N/A)
+    // Range: 0.0 - 1.0
     r3e_float32 ClutchPedal;
 
-    // ...
+    // How much the player's brakes are biased towards the back wheels (0.3 = 30%, etc.)
+    // Note: -1.0 = N/A
     r3e_float32 BrakeBias;
 
-    // ...
-    r3e_tirepressure TirePressure;
+    // Unit: Kilopascals (KPa)
+    r3e_tire_pressure TirePressure;
 
-    // ...
+    // -1 = no data available
+    //  0 = not active
+    //  1 = active
     r3e_int32 TireWearActive;
 
-    // ...
+    // Which type of tires the player's car has (option, prime, etc.)
+    // Note: See the r3e_tire_type enum
     r3e_int32 TireType;
 
-    // ...
-    r3e_braketemperatures BrakeTemperatures;
+    // Brake temperatures for all four wheels
+    // Unit: Celsius (C)
+    r3e_brake_temps BrakeTemperatures;
 
     // -1 = no data
     //  0 = not active
     //  1 = active
     r3e_int32 FuelUseActive;
 
-    // ...
+    // Amount of time remaining for the current session
+    // Note: Only available in time-based sessions, -1.0 = N/A
+    // Units: Seconds
     r3e_float32 SessionTimeRemaining;
 
-    // ...
+    // The current best lap time for the leader of the session (-1.0 = N/A)
     r3e_float32 LapTimeBestLeader;
 
-    // ...
+    // The current best lap time for the leader of the player's class in the current session (-1.0 = N/A)
     r3e_float32 LapTimeBestLeaderClass;
 
-    // ...
-    r3e_float32 LapTimeDeltaSelf;
+    // Reserved for future (proper) implementation of lap_time_delta_self
+    r3e_float32 _LapTimeDeltaSelf;
 
-    // ...
-    r3e_float32 LapTimeDeltaLeader;
+    // The time delta between the player's time and the leader of the current session (-1.0 = N/A)
+    r3e_float32 _LapTimeDeltaLeader;
 
-    // ...
-    r3e_float32 LapTimeDeltaLeaderClass;
+    // The time delta between the player's time and the leader of the player's class in the current session (-1.0 = N/A)
+    r3e_float32 _LapTimeDeltaLeaderClass;
 
-    // ...
-    r3e_sectors SectorTimeDeltaSelf;
+    // Reserved for future (proper) implementation of sector_time_delta_self
+    r3e_sectors _SectorTimeDeltaSelf;
 
-    // ...
-    r3e_sectors SectorTimeDeltaLeader;
+    // Reserved for future (proper) implementation of sector_time_delta_leader
+    r3e_sectors _SectorTimeDeltaLeader;
 
-    // ...
-    r3e_sectors SectorTimeDeltaLeaderClass;
+    // Reserved for future (proper) implementation of sector_time_delta_leader_class
+    r3e_sectors _SectorTimeDeltaLeaderClass;
 
-    // ...
+    // Time delta between the player and the car placed in front (-1.0 = N/A)
+    // Units: Seconds
     r3e_float32 TimeDeltaFront;
 
-    // ...
+    // Time delta between the player and the car placed behind (-1.0 = N/A)
+    // Units: Seconds
     r3e_float32 TimeDeltaBehind;
 
-    // ...
+    // Current status of the pit stop
+    // Note: See the R3E.Constant.PitWindow enum
     r3e_int32 PitWindowStatus;
 
     // The minute/lap into which you're allowed/obligated to pit
@@ -345,14 +438,14 @@ typedef struct
     // Total number of cut track warnings
     r3e_int32 CutTrackWarnings;
 
-    // ...
-    r3e_cuttrackpenalties Penalties;
+    // The number of penalties the player currently has pending of each type (-1 = N/A)
+    r3e_cut_track_penalties Penalties;
 
     // ...
     r3e_flags Flags;
 
     // ...
-    r3e_cardamage CarDamage;
+    r3e_car_damage CarDamage;
 } r3e_shared;
 ]]
 
