@@ -3,51 +3,120 @@ local r3e          = require "r3e"
 local r3etrace     = require "r3etrace"
 local utils        = require "utils"
 local r3emap       = require "r3emap"
+
+----------------------------------
 local state        = ffi.new( r3e.SHARED_TYPE )
+
+local config       = {record={}, replay={}, viewer={}}
+
+utils.loadInto("config.lua", config)
+utils.loadInto("config-user.lua", config)
 
 local args = _ARGS or {...}
 
-local traceFileName = args[2] or "trace_test.r3t"
+local traceFileName = args[2] or "trace_150712_100758.r3t"
 
 local trace = r3etrace.loadTrace(traceFileName)
 
-local dumpinterval = 2
-local playspeed    = 1
-local playbackrate = math.max(1,math.floor(trace.pollrate/2))
+local timebased    = config.replay.timebased 
+local dumpframes   = config.replay.dumpframes or 120
+local dumpinterval = config.replay.dumpinterval or 2
+
+local playspeed    = config.replay.playspeed or 1
+local playrate     = config.replay.playrate or math.max(1,math.floor(trace.pollrate/2))
+
+----------------------------------
+
+local fnPrint = r3emap.printAll
+if (config.replay.dumpfilter) then
+  -- get properties
+  local allprops = r3emap.getAllProperties()
+  local lkprops = {}
+  for i,v in ipairs(allprops) do
+    lkprops[v[1]] = i
+  end
+  -- find 
+  local used = {}
+  for i,v in ipairs(config.replay.dumpfilter) do
+    local idx = lkprops[v] 
+    if (idx) then
+      table.insert(used, allprops[idx])
+    end
+  end
+  
+  if (#used > 0) then
+    local fnaccess = r3emap.makeAccessor(used)
+    local results = {}
+    
+    fnPrint = function(state)
+      fnaccess(results, state)
+      r3emap.printResults(used, results)
+    end
+    
+  else
+    -- dummy func
+    fnPrint = function(state) end
+  end
+  
+end
+
+----------------------------------
 
 -- write only mapping
 local mapping = r3e.createMapping(true)
 
-local begin    = trace.begin - os.clock()
-local time     = 0
-local timeEnd  = trace.begin + trace.duration
-
-
-local function update()
-  time = os.clock() * playspeed + begin
-  local idx = trace:getInterpolatedFrame( state, time )
-  mapping:writeData( state )
-  --print(time, state.Player.GameSimulationTime, idx)
-end
-
--- sleep resolution may not be so great
 print("replaying",traceFileName)
 
-local lastInterval = nil
+if (timebased) then
+  -- time based
+  local begin    = trace.begin - os.clock()
+  local time     = 0
+  local timeEnd  = trace.begin + trace.duration
 
-while (time <= timeEnd) do
-  update()
-  
-  -- dump every once and a while
-  local interval = math.floor(time/dumpinterval)
-  if (interval ~= lastInterval) then
-    print("PLAYER TIME",time)
-    r3emap.printAll(state)
-    print ""
-    lastInterval = interval
+  local function update()
+    time = os.clock() * playspeed + begin
+    trace:getInterpolatedFrame( state, time )
+    mapping:writeData( state )
   end
+
+  local lastInterval = nil
+  while (time <= timeEnd) do
+    update()
+    
+    -- dump every once and a while
+    local interval = math.floor(time/dumpinterval)
+    if (interval ~= lastInterval) then
+      print("PLAYER TIME",time)
+      fnPrint(state)
+      print ""
+      lastInterval = interval
+    end
+    
+    utils.sleep( playrate )
+  end
+else
+  --frame based
+  local frame = 0
+  local frameEnd = trace.frames
   
-  utils.sleep( playbackrate )
+  local lastInterval = nil
+  while (frame < frameEnd) do
+    trace:getFrameRaw( state, frame )
+    mapping:writeData( state )
+    
+    -- dump every once and a while
+    local interval = math.floor(frame/dumpframes)
+    if (interval ~= lastInterval) then
+      print("PLAYER FRAME", frame)
+      fnPrint(state)
+      print ""
+      lastInterval = interval
+    end
+    
+    frame = frame + playspeed
+    
+    utils.sleep( playrate )
+  end
 end
 print("completed")
 

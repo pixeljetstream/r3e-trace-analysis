@@ -315,9 +315,10 @@ do
 end
 
 local _M = {}
-function _M.getAllProperties()
+function _M.getAllProperties(raw)
   local res = {}
-  for i,v in ipairs(properties) do
+  local used = raw and propertiesRaw or properties
+  for i,v in ipairs(used) do
     res[i] = {v[1],v[2]}
   end
   return res
@@ -373,6 +374,26 @@ function _M.getAll(state)
   return tab
 end
 
+function _M.printResults(props, results)
+  local padded = {
+               -- "r3e_vec3_f64"
+    r3e_float64 = "r3e_float64 ",
+    r3e_float32 = "r3e_float32 ",
+    r3e_int32   = "r3e_int32   ",
+  }
+  
+  for i,v in ipairs(props) do
+    local res = results[i]
+    if (v[2] == "r3e_vec3_f64" or v[2] == "r3e_vec3_f32") then
+      local v3length = math.sqrt(res[1]*res[1] + res[2]*res[2] + res[3]*res[3])
+      print(v[2],v[1], "{"..table.concat(res,",").."}", v3length)
+    else
+      print(padded[v[2]],v[1], res)
+    end
+    
+  end
+end
+
 function _M.printAll(state)
   local results = {}
   accessAll(results, state)
@@ -384,16 +405,7 @@ function _M.printAll(state)
     r3e_int32   = "r3e_int32   ",
   }
   
-  for i,v in ipairs(properties) do
-    local res = results[i]
-    if (v[2] == "r3e_vec3_f64" or v[2] == "r3e_vec3_f32") then
-      local v3length = math.sqrt(res[1]*res[1] + res[2]*res[2] + res[3]*res[3])
-      print(v[2],v[1], "{"..table.concat(res,",").."}", v3length)
-    else
-      print(padded[v[2]],v[1], res)
-    end
-    
-  end
+  _M.printResults(properties,results)
 end
 
 return _M

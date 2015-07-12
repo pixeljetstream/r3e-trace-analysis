@@ -2,29 +2,34 @@ local ffi          = require "ffi"
 local r3e          = require "r3e"
 local r3etrace     = require "r3etrace"
 local utils        = require "utils"
+
+----------------------------------
+
 local stateLast    = ffi.new( r3e.SHARED_TYPE )
 local state        = ffi.new( r3e.SHARED_TYPE )
 
-local config = {}
+local config       = {record={}, replay={}, viewer={}}
 
 utils.loadInto("config.lua", config)
 utils.loadInto("config-user.lua", config)
 
-local pollrate = config.pollrate or 10
+local pollrate = config.record.pollrate or 10
+local onlydriving = config.record.onlydriving == nil or config.record.onlydriving
 
 ----------------------------------
 
 local chunksMem = {}
-local chunkFrames = 20 * 60 * math.floor(1000/config.pollrate) -- one chunk is 20 minutes
+local chunkFrames = 20 * 60 * math.floor(1000/pollrate) -- one chunk is 20 minutes
 local chunkCount = 0
 local framesMax = 0
 local frames = 0
 local diff = 0
-local lapBegins = {0}
+local lapBegins = {}
 
 local function allocateChunk()
   local mem = ffi.new(r3e.SHARED_TYPE_NAME.."[?]", chunkFrames)
-  chunksMem[chunkCount] = mem
+  local memTime = ffi.new("double[?]", chunkFrames)
+  chunksMem[chunkCount] = {mem,memTime}
   
   chunkCount = chunkCount + 1
   framesMax = chunkCount * chunkFrames
@@ -33,24 +38,28 @@ allocateChunk()
 
 
 local lastLap
-local function record(state, stateLast)
+local lastTimeValid
+local function record(state, stateLast, time)
   if (frames >= framesMax) then
     allocateChunk()
   end
   
   local c   = math.floor(frames/chunkFrames)
-  local mem = chunksMem[c]
+  local mem,memTime = chunksMem[c][1],chunksMem[c][2]
   
   local f   = frames - c*chunkFrames
   local dst = mem + f
   
   -- log lap begins
-  if (state.LapTimeCurrent >= 0 and state.CompletedLaps >= 0 and lastLap ~= state.CompletedLaps)
+  local timeValid = state.LapTimeCurrent >= 0
+  if (timeValid ~= lastTimeValid or state.CompletedLaps ~= lastLap)
   then
     table.insert(lapBegins, frames)
-    lastLap = state.CompletedLaps
+    lastLap       = state.CompletedLaps
+    lastTimeValid = timeValid
   end
   
+  memTime[f] = time
   ffi.copy(dst, state, r3e.SHARED_SIZE)
   
   if (frames > 0) then
@@ -74,31 +83,36 @@ local function saveTrace(filename)
   local numf = frames - numc*chunkFrames
   print("numc, numf", numc, numf)
   
-  -- full chunks
-  for c=0,numc-1 do
-    local mem = chunksMem[c]
-    str = ffi.string(mem, r3e.SHARED_SIZE * chunkFrames)
+  -- first times
+  -- then shared
+  local sizes = {r3e.SHARED_SIZE, ffi.sizeof("double")}
+  for i=2,1,-1 do
+    -- full chunks
+    for c=0,numc-1 do
+      local mem = chunksMem[c][i]
+      str = ffi.string(mem, sizes[i] * chunkFrames)
+      file:write(str)
+    end
+    
+    -- frames
+    local mem = chunksMem[numc][i]
+    str = ffi.string(mem, sizes[i] * numf)
     file:write(str)
   end
   
-  -- frames
-  local mem = chunksMem[numc]
-  str = ffi.string(mem, r3e.SHARED_SIZE * numf)
-  file:write(str)
-  
   file:flush()
   file:close()
-  
 end
 
 if (true) then 
   print "runtest.."
   local begin = os.clock()
   for i=0,9 do
-    state.Player.GameSimulationTime = os.clock()-begin
+    local time = os.clock()-begin
+    state.Player.GameSimulationTime = time
     state.CompletedLaps = math.floor(i/2)
     
-    record(state, stateLast)
+    record(state, stateLast, time)
     state,stateLast = stateLast, state
     
     utils.sleep( math.max(1,math.floor(pollrate)) )
@@ -127,7 +141,7 @@ end
 local traceFileName
 local function beginSession(state)
   frames = 0
-  lapBegins = {0}
+  lapBegins = {}
   diff = 0
   lastLap = nil
   traceFileName = "trace_"..os.date("%y%m%d_%H%M%S")..".r3t"
@@ -141,9 +155,12 @@ local function endSession()
   frames = 0
 end
 
-local delay = 2
-local lastGameSimTime = 0
+local lastGameSimTime = nil
+local lastSessionType = nil
+
 local inSession = false
+local inPause = false
+local timeBegin
 
 function update()
   if (not (r3e.isR3Erunning() and r3e.isMappable())) then 
@@ -161,31 +178,51 @@ function update()
   -- update data
   mapping:readData( state )
   
-  -- no session?
-  -- FIXME detect if paused
-  if (state.SessionType == r3e.Session.Unavailable) then
+  -- if need new session (restart keeps sessionType only resets gametime
+  -- main menu is Session.Unavailable
+  
+  if (state.SessionType == r3e.Session.Unavailable or 
+      state.SessionType ~= lastSessionType or
+      state.Player.GameSimulationTime < lastGameSimTime) 
+  then
     if (inSession) then
       endSession()
       inSession = false
     end
-    inSession = false
-    return
+    if (state.SessionType == r3e.Session.Unavailable) then
+      return
+    end
   end
   
   if (not inSession) then
     beginSession(state)
+    timeBegin = os.clock()
     inSession = true
+    inPause   = true
   end
   
-  -- detect paused...
+  
   if (inSession) then
-    if (state.ControlType ~= r3e.Control.Unavailable) 
+    -- detect paused or not really driving ...
+    -- if onlydriving is false we capture all events even if AI drives or game is paused...
+    if (not onlydriving or 
+      ( state.ControlType == r3e.Control.Player and
+        state.Player.GameSimulationTime > 0 and       
+        lastGameSimTime ~= state.Player.GameSimulationTime --paused
+      ))
     then
-      record(state, stateLast)
+      if (inPause) then print "recording..." end
+      inPause = false
+      local time = onlydriving and state.Player.GameSimulationTime or (os.clock()-timeBegin)
+      record(state, stateLast, time)
     else
-      --print "skipping"
+      if (not inPause) then print "record paused" end
+      inPause = true
     end
   end
+  
+  lastGameSimTime = state.Player.GameSimulationTime
+  lastSessionType = state.SessionType
   
   -- swap
   state,stateLast = stateLast,state
@@ -198,6 +235,10 @@ while true do
   end
   
   utils.sleep( math.max(1,math.floor(pollrate)) )
+end
+
+if (inSession) then
+  endSession()
 end
 print "terminated"
 

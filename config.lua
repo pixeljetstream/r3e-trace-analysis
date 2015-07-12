@@ -1,2 +1,33 @@
-pollrate = 10 -- approximative delay in milliseconds, 10 is about 100x per second
-              -- each sample costs ~ 600-700 bytes
+
+
+-- approximative delay in milliseconds, 10 is about 100x per second
+-- each sample costs ~ 600-700 bytes
+record.pollrate = 10 
+
+-- For app developers set this to false, otherwise
+-- only driving frames will be recorded (no AI, formation, in-menu... frames).
+-- When active the trace file's times will be based on Player.GameSimulationTime,
+-- otherwise based on recording time
+record.onlydriving = true 
+
+-------------------------------------------
+
+-- time delay in milliseconds
+-- used if set, otherwise defaults to half of recorded average rate
+replay.playrate = nil
+
+-- play back based on time, otherwise frames
+replay.timebased = true
+
+-- dump full state every N seconds
+replay.dumpinterval = 2
+
+-- dump full state every N frames
+replay.dumpframes = 120
+
+-- if not set all properties are dumped
+-- otherwise use strings like {"Player.GameSimulationTime",}
+replay.dumpfilter = nil
+
+-- playback speed (frames or time are multiplied by this)
+replay.playspeed = 1

@@ -2,8 +2,11 @@ local ffi = require "ffi"
 local r3e = require "r3e"
 local r3emap = require "r3emap"
 
+local R3E_TRACE_VERSION = 1
+
 ffi.cdef ([[
 typedef struct  {
+  int version;
   int frameSize;
   int frames;
   int pollrate;
@@ -15,6 +18,7 @@ local _M = {}
   
 function _M.createHeader(frames, pollrate, lapBegins)
   local header = ffi.new("r3e_trace_header")
+  header.version   = R3E_TRACE_VERSION
   header.frameSize = r3e.SHARED_SIZE
   header.frames    = frames
   header.pollrate  = pollrate
@@ -62,6 +66,7 @@ function _M.loadTrace(filename)
   
   local header = ffi.new("r3e_trace_header")
   readInto(header, ffi.sizeof("r3e_trace_header"))
+  assert(header.version   == header.version, "wrong trace file version")
   assert(header.frameSize == r3e.SHARED_SIZE, "wrong r3e data version")
   
   local laps     = header.laps
@@ -73,14 +78,11 @@ function _M.loadTrace(filename)
   
   print("frameSize, frames, laps, pollrate",header.frameSize, header.frames, header.laps, pollrate)
   
+  local contentTimes   = ffi.new("double[?]", frames)
+  readInto(contentTimes, ffi.sizeof("double") * frames)
+  
   local content   = ffi.new(r3e.SHARED_TYPE_NAME.."[?]", frames)
   readInto(content, r3e.SHARED_SIZE * frames)
-  
-  -- more cache friendly access to frame times
-  local contentTimes = ffi.new("double[?]", frames)
-  for i=0,frames-1 do
-    contentTimes[i] = content[i].Player.GameSimulationTime
-  end
   
   local lapData = {}
   for i=0,header.laps-1 do
@@ -129,8 +131,19 @@ function _M.loadTrace(filename)
     return idx
   end
   
+  function trace:getFrame(state, time, startidx)
+    local idx = trace:getFrameIdx(time, startidx)
+    ffi.copy(state, content + idx, r3e.SHARED_SIZE)
+    return idx
+  end
+  
+  function trace:getFrameRaw(state, idx)
+    local idx = math.max(math.min(idx, frames-1),0)
+    ffi.copy(state, content + idx, r3e.SHARED_SIZE)
+  end
+  
   function trace:getInterpolatedFrame(state, time, startidx)
-    local idx = trace:getFrameIdx(time)
+    local idx = trace:getFrameIdx(time, startidx)
     if (idx == frames-1) then
       ffi.copy(state, content + idx, r3e.SHARED_SIZE)
     else
