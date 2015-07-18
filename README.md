@@ -23,14 +23,22 @@ bridge of R3E. Frame- or time-based replaying is supported. The state values get
 
 ### **r3e-trace-viewer.exe**
 
-TODO, a tool to open a trace file and inspect all data, as well as visualize data based on the players recorded position (poor man's telemetry). Will allow to browse through individual laps recorded within the session.
+![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/ui.png)
+
+A tool to open a trace file and inspect all data. Allows to browse through individual laps recorded within the session.
+
+TODO:
+
+* OpenGL-based visualization of track and graphs for plotting data 
+* Flexible expression editor what to visualize (raw values, gradients...)
 
 ### Settings
 
 The default settings are stored in "config.lua". Directly edit or create "config-user.lua" to override those.
 
 ### History
-
+* 18.07.2015:
+ * first version of trace viewer working
 * 12.07.2015:
  * major revision in fileformat
  * improved detection of session begin/end

@@ -31,3 +31,8 @@ replay.dumpfilter = nil
 
 -- playback speed (frames or time are multiplied by this)
 replay.playspeed = 1
+
+-------------------------------------------
+-- if not set all properties are shown
+-- otherwise use string array like {"Player.GameSimulationTime",}
+viewer.propertyfilter = nil

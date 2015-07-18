@@ -57,7 +57,9 @@ function _M.loadTrace(filename)
   -- read header
   print ("loading", filename)
   local file = io.open(filename, "rb")
-  assert(file,filename)
+  if (not file) then
+    return 
+  end
   
   local function readInto(out, sz)
     local bytes = file:read(sz)
@@ -66,7 +68,7 @@ function _M.loadTrace(filename)
   
   local header = ffi.new("r3e_trace_header")
   readInto(header, ffi.sizeof("r3e_trace_header"))
-  assert(header.version   == header.version, "wrong trace file version")
+  assert(header.version   == R3E_TRACE_VERSION, "wrong trace file version")
   assert(header.frameSize == r3e.SHARED_SIZE, "wrong r3e data version")
   
   local laps     = header.laps
@@ -85,18 +87,47 @@ function _M.loadTrace(filename)
   readInto(content, r3e.SHARED_SIZE * frames)
   
   local lapData = {}
-  for i=0,header.laps-1 do
-    local lastlap = (i == (header.laps-1))
-    
-    local frameBegin = lapsraw[i]
-    local frameEnd   = lastlap and frames-1 or lapsraw[i+1]
-    local frameCount = frameEnd - frameBegin
-    
-    local timeBegin = contentTimes[frameBegin]
-    local time      = contentTimes[frameEnd] - timeBegin
-    
-    print("lap "..(i), frameBegin, frameCount, "time", timeBegin, time)
-    table.insert(lapData, { frameBegin = frameBegin, frameCount = frameCount, timeBegin=timeBegin, time=time} )
+  local posMin = {100000,100000,100000}
+  local posMax = {-100000,-100000,-100000}
+  
+  local function checkPos(state)
+    if (state.Player.Position.X ~= 0) then
+      local pos = {state.Player.Position.X,state.Player.Position.Y,state.Player.Position.Z}
+      for i=1,3 do 
+        posMin[i] = math.min(posMin[i],pos[i])
+        posMax[i] = math.max(posMax[i],pos[i])
+      end
+    end
+  end
+  
+  do
+    local lastTimeValid
+    local lastTime 
+    local lastLap
+    local lastFrame
+    local lapValid = true
+    for i=0,frames-1 do
+      local state     = content + i
+      
+      timeValid = state.LapTimeCurrent >= 0
+      if (state.CompletedLaps ~= lastLap)
+      then
+        if (lastTime) then
+          local prev = content + (i-1)
+          
+          table.insert(lapData, { frameBegin = lastFrame, frameCount = i - lastFrame, timeBegin=lastTime, time=contentTimes[i-1] - lastTime, laptime = state.LapTimePrevious, valid = lastTimeValid} )
+        end
+        lastFrame = i
+        lastTime  = contentTimes[i]
+      end
+      lastLap       = state.CompletedLaps
+      lastTimeValid = timeValid
+      
+      checkPos(state)
+    end
+    local prev = content + (frames-1)
+    table.insert(lapData, { frameBegin = lastFrame, frameCount = frames - lastFrame, timeBegin=lastTime, time=contentTimes[frames-1] - lastTime, laptime=prev.LapTimePrevious, valid = lastTimeValid} )
+    laps = #lapData
   end
   
   local begin    = contentTimes[0]
@@ -112,6 +143,8 @@ function _M.loadTrace(filename)
     content = content,
     contentTimes = contentTimes,
     contentSize = contentSize,
+    posMin = posMin,
+    posMax = posMax,
   }
   
   function trace:getFrameIdx(time, startidx)

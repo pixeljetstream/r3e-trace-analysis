@@ -14,7 +14,7 @@ utils.loadInto("config-user.lua", config)
 
 local args = _ARGS or {...}
 
-local traceFileName = args[2] or "trace_150712_100758.r3t"
+local traceFileName = args[2] or "trace_150712_170141.r3t"
 
 local trace = r3etrace.loadTrace(traceFileName)
 
@@ -98,6 +98,7 @@ else
   --frame based
   local frame = 0
   local frameEnd = trace.frames
+  frame = frameEnd
   
   local lastInterval = nil
   while (frame < frameEnd) do
@@ -106,7 +107,7 @@ else
     
     -- dump every once and a while
     local interval = math.floor(frame/dumpframes)
-    if (interval ~= lastInterval) then
+    if (interval ~= lastInterval or true) then
       print("PLAYER FRAME", frame)
       fnPrint(state)
       print ""
@@ -115,7 +116,7 @@ else
     
     frame = frame + playspeed
     
-    utils.sleep( playrate )
+    --utils.sleep( playrate )
   end
 end
 print("completed")
