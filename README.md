@@ -29,6 +29,7 @@ A tool to open a trace file and inspect all data. Allows to browse through indiv
 
 TODO:
 
+* ".csv" file export of selected properties or their gradient
 * OpenGL-based visualization of track and graphs for plotting data 
 * Flexible expression editor what to visualize (raw values, gradients...)
 
