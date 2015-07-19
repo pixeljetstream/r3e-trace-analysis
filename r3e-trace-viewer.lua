@@ -333,6 +333,7 @@ local gfx = {
   lap     = 0,
   samples = 0,
   samplesAvg = nil,
+  gradient = false,
 }
 do
   local glcontext -- the primary context
@@ -469,6 +470,7 @@ do
     minmax = minmax[1]
     
     gfx.minmax = minmax
+    gfx.gradient = gradient > 0
     
     local dataraw  = ffi.new("float[?]", samples, outputs)
     gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufdata[0])
@@ -540,12 +542,13 @@ do
     gl.glMatrixMode(gl.GL_TEXTURE)
     gl.glLoadIdentity()
     
-    local signed = gfx.minmax[1] < -0.000001
     local range = math.max(gfx.minmax[2],math.abs(gfx.minmax[1]))
-    if (signed) then
+    if (gfx.gradient) then
+      -- [-range,range]
       gl.glScalef(1/(range*2),1,1)
       gl.glTranslatef(range,0,0)
     else
+      -- [0,rage]
       gl.glScalef(1/range,1,1)
     end
     
