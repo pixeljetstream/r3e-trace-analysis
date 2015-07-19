@@ -333,7 +333,7 @@ local gfx = {
   lap     = 0,
   samples = 0,
   samplesAvg = nil,
-  gradient = false,
+  gradient = true,
 }
 do
   local glcontext -- the primary context
@@ -437,6 +437,7 @@ do
     gfx.samples = samples
     gfx.lap     = lap
     gfx.minmax  = {-1,1}
+    gfx.gradient= true
     
     local raw  = ffi.new("float[?]", samples*3,   pos)
     gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufpos[0])
