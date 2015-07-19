@@ -134,6 +134,7 @@ function _M.loadTrace(filename)
   local duration = contentTimes[frames-1] - begin
   
   local trace = {
+    filename = filename,
     begin  = begin,
     duration = duration,
     frames = frames,

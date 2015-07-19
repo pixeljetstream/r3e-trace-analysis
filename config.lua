@@ -36,3 +36,6 @@ replay.playspeed = 1
 -- if not set all properties are shown
 -- otherwise use string array like {"Player.GameSimulationTime",}
 viewer.propertyfilter = nil
+
+-- for export and plots, sample at this resolution (seconds)
+viewer.samplerate = 0.5

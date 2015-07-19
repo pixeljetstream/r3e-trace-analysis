@@ -296,12 +296,12 @@ do
         if (v.valuetype) then
           -- special case vectors
           if (not raw and (v.valuetype == "r3e.r3e_vec3_f64" or v.valuetype == "r3e.r3e_vec3_f32")) then
-            table.insert(tab,{prepend..i,v.description})
+            table.insert(tab,{name=prepend..i, descr=v.description})
           else
             getAllProperties(tab, v.valuetype:sub(5,-1), prepend..i..".", raw)
           end
         else
-          table.insert(tab,{prepend..i,v.description})
+          table.insert(tab,{name=prepend..i, descr=v.description})
         end
       end
     end
@@ -310,8 +310,8 @@ do
 
   getAllProperties(properties, "r3e_shared", "")
   getAllProperties(propertiesRaw, "r3e_shared", "", true)
-  table.sort(properties, function(a,b) return a[1] < b[1] end)
-  table.sort(propertiesRaw, function(a,b) return a[1] < b[1] end)
+  table.sort(properties, function(a,b) return a.name < b.name end)
+  table.sort(propertiesRaw, function(a,b) return a.name < b.name end)
 end
 
 local _M = {}
@@ -319,7 +319,7 @@ function _M.getAllProperties(raw)
   local res = {}
   local used = raw and propertiesRaw or properties
   for i,v in ipairs(used) do
-    res[i] = {v[1],v[2]}
+    res[i] = {name=v.name,descr=v.descr}
   end
   return res
 end
@@ -327,8 +327,8 @@ function _M.makeAccessor(tab)
   
   local str = "local results, state = ...\n"
   for i,v in ipairs(tab) do
-    local k = v[1]
-    if (v[2] == "r3e_vec3_f64" or v[2] == "r3e_vec3_f32") then
+    local k = v.name
+    if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
       str = str.."results["..i.."] = {state."..k..".X, state."..k..".Y,state."..k..".Z,}\n"
     else
       str = str.."results["..i.."] = state."..k.."\n"
@@ -346,8 +346,8 @@ function _M.makeInterpolator()
   str  = str.."local function lerp(a, b, t) return a * (1-t) + b * t  end\n"
   
   for i,v in ipairs(propertiesRaw) do
-    local k = v[1]
-    if (v[2] == "r3e_int32") then
+    local k = v.name
+    if (v.descr == "r3e_int32") then
       str = str.."stateOut."..k.." = stateA."..k.."\n"
     else
       str = str.."stateOut."..k.." = lerp(stateA."..k..", stateB."..k..", fracc)\n"
@@ -368,7 +368,7 @@ function _M.getAll(state)
   
   local tab = {}
   for i,v in ipairs(properties) do
-    tab[v[1]] = results[i]
+    tab[v.name] = results[i]
   end
   
   return tab
@@ -381,14 +381,14 @@ function _M.printResults(props, results)
     r3e_float32 = "r3e_float32 ",
     r3e_int32   = "r3e_int32   ",
   }
-  
+
   for i,v in ipairs(props) do
     local res = results[i]
-    if (v[2] == "r3e_vec3_f64" or v[2] == "r3e_vec3_f32") then
+    if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
       local v3length = math.sqrt(res[1]*res[1] + res[2]*res[2] + res[3]*res[3])
-      print(v[2],v[1], "{"..table.concat(res,",").."}", v3length)
+      print(v.descr,v.name, "{"..table.concat(res,",").."}", v3length)
     else
-      print(padded[v[2]],v[1], res)
+      print(padded[v.descr],v.name, res)
     end
     
   end
@@ -397,13 +397,6 @@ end
 function _M.printAll(state)
   local results = {}
   accessAll(results, state)
-  
-  local padded = {
-               -- "r3e_vec3_f64"
-    r3e_float64 = "r3e_float64 ",
-    r3e_float32 = "r3e_float32 ",
-    r3e_int32   = "r3e_int32   ",
-  }
   
   _M.printResults(properties,results)
 end

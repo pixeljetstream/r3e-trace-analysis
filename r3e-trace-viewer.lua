@@ -17,6 +17,96 @@ local APP_NAME  = "R3E Trace Viewer"
 local SLIDER_RES = 2048
 
 ---------------------------------------------
+
+local function getSampledData(trace, lap, selected, gradient)
+  local state = ffi.new( r3e.SHARED_TYPE )
+  local statePrev = ffi.new( r3e.SHARED_TYPE )
+  local stateNext = ffi.new( r3e.SHARED_TYPE )
+  
+  local samplerate = config.samplerate or 0.1
+  local lap = trace.lapData[lap]
+  
+  local timeBegin = lap.timeBegin
+  local timeEnd   = lap.timeBegin + lap.time
+  
+  local times   = {}
+  local outputs = {}
+  local num     = #selected.props
+  for i=1,num do
+    outputs[i] = {}
+  end
+  
+  local function getMagnitude(res)
+    return math.sqrt(res[1]*res[1] + res[2]*res[2] + res[3]*res[3])
+  end
+  
+  local results = {}
+  local resultsPrev = {}
+  local resultsNext = {}
+  local time,n = timeBegin,0
+  while time < timeEnd do
+    local laptime = time-timeBegin
+    table.insert(times, laptime)
+    
+    if (gradient > 0) then
+      trace:getInterpolatedFrame(statePrev, time - gradient * samplerate)
+      trace:getInterpolatedFrame(stateNext, time + gradient * samplerate)
+      selected.fnaccess(resultsPrev, statePrev)
+      selected.fnaccess(resultsNext, stateNext)
+      for i=1,num do
+        local v = selected.props[i]
+        local resPrev = resultsPrev[i]
+        local resNext = resultsNext[i]
+        if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
+          resPrev = getMagnitude(resPrev)
+          resNext = getMagnitude(resNext)
+        end
+        local res = resNext-resPrev
+        table.insert(outputs[i], res)
+      end
+    else
+      trace:getInterpolatedFrame(state, time)
+      selected.fnaccess(results, state)
+      for i=1,num do
+        local v = selected.props[i]
+        local res = results[i]
+        if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
+          res = getMagnitude(res)
+        end
+        table.insert(outputs[i], res)
+      end
+    end
+    
+    n = n + 1
+    time = lap.timeBegin + samplerate * n
+  end
+  
+  return times, num, outputs, n
+end
+
+local function saveCSV(trace, lap, selected, gradient, filename)
+  local times, num, outputs, samples = getSampledData(trace, lap, selected, gradient)
+  
+  local f = io.open(filename,"wt")
+  f:write('"times"; ')
+  for i=1,num do
+    f:write('"'..selected.props[i].name..'"; ')
+  end
+  f:write("\n")
+  for n=1,samples do
+    f:write(tostring(times[n]))
+    f:write("; ")
+    for i=1,num do
+      f:write(tostring(outputs[i][n]))
+      f:write("; ")
+    end
+    f:write("\n")
+  end
+  f:flush()
+  f:close()
+end
+
+---------------------------------------------
 local traceFileName = args[2]
 local trace
 local traceLapData
@@ -83,11 +173,13 @@ end
 local ID_PROPERTY = NewID()
 local ID_LAP      = NewID()
 local ID_SLIDER   = NewID()
-local ID_SPINNER  = NewID()
+local ID_TXTTIME  = NewID()
+local ID_SPNGRAD  = NewID()
+local ID_BTNEXPORT= NewID()
+local ID_BTNPLOT  = NewID()
 local ID_GRAPH    = NewID()
 local ID_TRACK    = NewID()
 local ID_EXPRESSION = NewID()
-
 
 
 ---------------------------------------------
@@ -103,12 +195,21 @@ local function initLapView(frame)
   
   local control = wx.wxListCtrl(frame, ID_LAP,
                             wx.wxDefaultPosition, wx.wxSize(110, 300),
-                            wx.wxLC_REPORT)
+                            wx.wxLC_REPORT + wx.wxLC_SINGLE_SEL)
+  
+  local default = control:GetTextColour()
+  local sel     = wx.wxColour(205,100,0)
+  
+  local function lapString( i, sel )
+    local str = trace.lapData[i].valid and tostring(i) or "("..tostring(i)..")"
+    return sel and ""..str.." |||" or str
+  end
   
   frame:Connect(ID_LAP, wx.wxEVT_COMMAND_LIST_ITEM_ACTIVATED,
   function (event)
     if (not trace) then return end
-    
+    control:SetItem(traceLap-1, 0, lapString(traceLap,false))
+    control:SetItem(event:GetIndex(), 0, lapString(event:GetIndex()+1,true))
     traceSetLap( event:GetIndex()+1)
   end)
 
@@ -120,7 +221,7 @@ local function initLapView(frame)
     control:SetColumnWidth(0,40)
     control:SetColumnWidth(1,60)
     for i,v in ipairs(trace.lapData) do
-      control:InsertItem(i-1, v.valid and tostring(i) or "("..tostring(i)..")")
+      control:InsertItem(i-1, lapString(i, i==1))
       control:SetItem(i-1, 1, toMS(v.time))
     end
   end
@@ -167,7 +268,7 @@ local function initPropertyView(frame)
   
   -- create
   for i,v in ipairs(props) do
-    control:InsertItem(i-1, v[1])
+    control:InsertItem(i-1, v.name)
   end
   
   local function time(trace, lap, time, state) 
@@ -183,6 +284,23 @@ local function initPropertyView(frame)
       end
       control:SetItem(i-1, 1, txt)
     end
+  end
+  
+  function control.getSelected()
+    local result = {
+      props = {},
+      fnaccess = nil,
+    }
+    -- built prop table
+    for i,v in ipairs(props) do
+      if (control:GetItemState(i-1, wx.wxLIST_STATE_SELECTED) ~= 0) then
+        table.insert(result.props, v)
+      end
+    end
+    
+    result.fnaccess = r3emap.makeAccessor(result.props)
+    
+    return result
   end
 
   registerHandler(events.time, time)
@@ -244,37 +362,48 @@ local function initApp()
                       frame)
     end )
   
-  local tools = wx.wxPanel( frame, wx.wxID_ANY)
-  frame.tool = tools
-  
-  local slider  = wx.wxSlider(tools, ID_SLIDER, 0, 0, SLIDER_RES)
-  local spinner = wx.wxTextCtrl(tools, ID_SPINNER, "0", wx.wxDefaultPosition, wx.wxDefaultSize, wx.wxTE_READONLY)
-  frame.slider  = slider
-  frame.spinner = spinner
-  local sizer = wx.wxBoxSizer(wx.wxHORIZONTAL)
-  sizer:Add(spinner, 0, wx.wxEXPAND)
-  sizer:Add(slider, 1, wx.wxEXPAND)
+  local tools       = wx.wxPanel( frame, wx.wxID_ANY )
+  local toolsTime   = wx.wxWindow ( tools, wx.wxID_ANY )
+  local toolsAction = wx.wxWindow ( tools, wx.wxID_ANY )
+  local sizer = wx.wxBoxSizer(wx.wxVERTICAL)
+  sizer:Add(toolsAction, 0, wx.wxEXPAND)
+  sizer:Add(toolsTime, 0, wx.wxEXPAND)
   tools:SetSizer(sizer)
   
-  local function lap()
-    -- reset
-    slider:SetValue(0)
-    spinner:ChangeValue("0")
-  end
-  registerHandler(events.lap, lap)
+  frame.tool = tools
   
-  tools:Connect(ID_SLIDER, wx.wxEVT_COMMAND_SLIDER_UPDATED,
-  function (event)
-    if (not traceLapData) then return end
-    
-    local fracc = event:GetInt()/(SLIDER_RES-1)
-    local laptime = traceLapData.time * fracc
-    local time = traceLapData.timeBegin + laptime
-    
-    traceSetTime(time)
-    spinner:ChangeValue(toMS(laptime))
-  end)
-    
+  local lbltime = wx.wxStaticText(toolsTime, wx.wxID_ANY, "Time:", wx.wxDefaultPosition, wx.wxSize(30,24), wx.wxALIGN_RIGHT)
+  local txttime = wx.wxTextCtrl(toolsTime, ID_TXTTIME, "0", wx.wxDefaultPosition, wx.wxSize(78,24), wx.wxTE_READONLY)
+  local slider  = wx.wxSlider(toolsTime, ID_SLIDER, 0, 0, SLIDER_RES, wx.wxDefaultPosition, wx.wxSize(80,24))
+  
+  -- wx.wxArtProvider.GetBitmap(wx.wxART_REPORT_VIEW, wx.wxART_MENU, wx.wxSize(16,16))
+  local btnexport = wx.wxButton( toolsAction, ID_BTNEXPORT, "Export Sel. Props",wx.wxDefaultPosition, wx.wxSize(116,24))
+  btnexport:SetToolTip("Export selected properties to .csv")
+  local btnplot = wx.wxButton( toolsAction, ID_BTNPLOT, "Plot Sel. Props",wx.wxDefaultPosition, wx.wxSize(100,24))
+  local lblgrad = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Gradient Width:", wx.wxDefaultPosition, wx.wxSize(86,24), wx.wxALIGN_RIGHT)
+  local spngrad = wx.wxSpinCtrl(toolsAction, ID_SPNGRAD, "", wx.wxDefaultPosition, wx.wxSize(50,24))
+  
+  frame.btnexport = btnexport
+  frame.btnplot = btnplot
+  frame.lbltime = lbltime
+  frame.txttime = txttime
+  frame.lblgrad = lblgrad
+  frame.spngrad = spngrad
+  frame.slider  = slider
+  
+  local sizer = wx.wxBoxSizer(wx.wxHORIZONTAL)
+  sizer:Add(lbltime, 0, wx.wxALL,4)
+  sizer:Add(txttime, 0, wx.wxALL)
+  sizer:Add(slider, 1, wx.wxEXPAND)
+  toolsTime:SetSizer(sizer)
+  
+  local sizer = wx.wxBoxSizer(wx.wxHORIZONTAL)
+  sizer:Add(btnexport, 0, wx.wxALL)
+  sizer:Add(btnplot, 0, wx.wxALL)
+  sizer:Add(lblgrad, 0, wx.wxALL,4)
+  sizer:Add(spngrad, 0, wx.wxALL)
+  toolsAction:SetSizer(sizer)
+  
   local lapSplitter = wx.wxSplitterWindow( frame, wx.wxID_ANY )
   frame.lapSplitter = lapSplitter
   
@@ -300,6 +429,44 @@ local function initApp()
   
   lapSplitter:SplitVertically(lap,propSplitter)
   propSplitter:SplitVertically(props,panel)
+  
+  ----------
+  -- events
+  
+  local function timelap()
+    -- reset
+    slider:SetValue(0)
+    txttime:ChangeValue("0")
+  end
+  registerHandler(events.lap, timelap)
+  
+  tools:Connect(ID_SLIDER, wx.wxEVT_COMMAND_SLIDER_UPDATED,
+  function (event)
+    if (not traceLapData) then return end
+    
+    local fracc = event:GetInt()/(SLIDER_RES-1)
+    local laptime = traceLapData.time * fracc
+    local time = traceLapData.timeBegin + laptime
+    
+    traceSetTime(time)
+    txttime:ChangeValue(toMS(laptime))
+  end)
+
+  tools:Connect(ID_SPNGRAD, wx.wxEVT_COMMAND_SPINCTRL_UPDATED,
+    function (event)
+      
+    end)
+    
+  tools:Connect(ID_BTNEXPORT, wx.wxEVT_COMMAND_BUTTON_CLICKED,
+    function (event) 
+      local fileDialog = wx.wxFileDialog( frame, "Open file", "", "","CSV table (*.csv)|*.csv",
+                                          wx.wxFD_SAVE)
+
+      if fileDialog:ShowModal() == wx.wxID_OK then
+        saveCSV( trace, traceLap, props.getSelected(), spngrad:GetValue(), fileDialog:GetPath() )
+      end
+      fileDialog:Destroy()
+    end )
   
   return frame
 end
