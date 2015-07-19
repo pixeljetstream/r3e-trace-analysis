@@ -334,6 +334,7 @@ local gfx = {
   samples = 0,
   samplesAvg = nil,
   gradient = true,
+  minmax = nil,
 }
 do
   local glcontext -- the primary context
@@ -622,9 +623,9 @@ local function initTrackView(frame)
     gl.glClearColor(1, 1, 1, 1)
     gl.glClear(gl.GL_COLOR_BUFFER_BIT + gl.GL_DEPTH_BUFFER_BIT + gl.GL_STENCIL_BUFFER_BIT)
     
-    if (not gfx.minmax) then return end
-    
-    gfx.drawTrack(w,h,zoom,pan)
+    if (gfx.minmax) then 
+      gfx.drawTrack(w,h,zoom,pan)
+    end
 
     canvas:SwapBuffers()
   end
