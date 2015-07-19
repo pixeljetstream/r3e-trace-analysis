@@ -27,6 +27,12 @@ bridge of R3E. Frame- or time-based replaying is supported. The state values get
 
 A tool to open a trace file and inspect all data. Allows to browse through individual laps recorded within the session. Double-click a lap to make it active. Laps with "invalid" times (shortcuts...) are in brackets "()". The current selected lap is marked with "|||".
 
+The current lap will be rendered in the track-view. The first valid lap of a file is drawn as fine line on top, as well as a marker with the current position.
+
+When double-clicking a single property it is printed in the track view. The current "Gradient width" setting is applied, see explanation further down. It allows to visualize up- or down shifts for example.
+
+![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_gradient.png)
+
 You can select interesting properties and export the current lap's interpolated values using the export button and create diagrams in your favorite chart software. How many sample points are taken is influenced by ```config.viewer.samplerate```.
 
 ![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/csvexport.png)
@@ -36,11 +42,11 @@ Positive values means the properties increased in the given gradient time span (
 
 ![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/csvexport_gradient.png)
 
-The plot button is a dummy at the moment.
 
 TODO:
 
-* OpenGL-based visualization of track and graphs for plotting data 
+* Zoom and pan for graphs
+* Graphs for plotting and comparing data 
 * Flexible expression editor what to visualize (raw values, gradients...)
 
 ### Settings
@@ -49,6 +55,7 @@ The default settings are stored in "config.lua". Create "config-user.lua" to ove
 
 ### History
 * 19.07.2015:
+ * track view
  * csv file export
 * 18.07.2015:
  * first version of trace viewer working
