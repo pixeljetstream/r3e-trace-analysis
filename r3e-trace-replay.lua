@@ -98,7 +98,6 @@ else
   --frame based
   local frame = 0
   local frameEnd = trace.frames
-  frame = frameEnd
   
   local lastInterval = nil
   while (frame < frameEnd) do
@@ -116,7 +115,7 @@ else
     
     frame = frame + playspeed
     
-    --utils.sleep( playrate )
+    utils.sleep( playrate )
   end
 end
 print("completed")
