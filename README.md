@@ -27,9 +27,13 @@ bridge of R3E. Frame- or time-based replaying is supported. The state values get
 
 A tool to open a trace file and inspect all data. Allows to browse through individual laps recorded within the session. Double-click a lap to make it active. Laps with "invalid" times (shortcuts...) are in brackets "()". The current selected lap is marked with "|||".
 
+Use the selectors (A,B,C,D) to compare different values or laps. 
+
+![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_compare.png)
+
 The current lap will be rendered in the track-view. The first valid lap of a file is drawn as fine line on top, as well as a marker with the current position.
 
-When double-clicking a single property it is printed in the track view. The current "Gradient width" setting is applied, see explanation further down. It allows to visualize up- or down shifts for example.
+When double-clicking a single property it is printed in the track view. The current "Gradient" setting is applied, see explanation further down. It allows to visualize up- or down shifts for example.
 
 ![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_gradient.png)
 
@@ -37,7 +41,7 @@ You can select interesting properties and export the current lap's interpolated 
 
 ![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/csvexport.png)
 
-By modifying the "Gradient Width" value to greater 0, you can export the rate of change of values.
+By modifying the "Gradient" value to greater 0, you can export the rate of change of values.
 Positive values means the properties increased in the given gradient time span ( ```time +/- gradient * config.viewer.samplerate```). 
 
 ![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/csvexport_gradient.png)
@@ -54,6 +58,9 @@ TODO:
 The default settings are stored in "config.lua". Create "config-user.lua" to override those.
 
 ### History
+* 25.07.2015:
+ * lap comparison via selector api
+ * GLSL used for rendering, 8x msaa default
 * 19.07.2015:
  * track view
  * csv file export

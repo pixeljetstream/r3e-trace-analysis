@@ -1,10 +1,13 @@
 local wx = require "wx"
 local ffi = require "ffi"
 local gl  = require "glewgl"
+local glu  = require "glutils"
 local utils = require "utils"
 local r3e = require "r3e"
 local r3etrace = require "r3etrace"
 local r3emap   = require "r3emap"
+local math3d   = require "math3d"
+local v3,v4,m4 = math3d.namespaces.v3,math3d.namespaces.v4,math3d.namespaces.m4
 
 local config       = {record={}, replay={}, viewer={}}
 CONFIG = config
@@ -16,27 +19,41 @@ local args = _ARGS or {...}
 local APP_NAME  = "R3E Trace Viewer"
 local SLIDER_RES = 2048
 local AVG_RES    = 2048
+local MAX_PLOTS  = 4
 ---------------------------------------------
 
-local function getSampledData(trace, lap, selected, gradient, fixednum)
+local function addTables(tab,n)
+  for i=1,n do
+    tab[i] = {}
+  end
+end
+
+local function getNumSelected(selected)
+  return selected and #selected.props or 0
+end
+
+local function getNumSamples(trace, lap)
+  local lap = trace.lapData[lap]
+  local timeBegin = lap.timeBegin
+  local timeEnd   = lap.timeBegin + lap.time
+  local rate      = config.viewer.samplerate or 0.1
+  return math.floor((lap.time/rate + 1)/2)*2
+end
+
+local function getSampledData(trace, lap, numSamples, times, pos, gradient, selected, outputs)
   local state = ffi.new( r3e.SHARED_TYPE )
   local statePrev = ffi.new( r3e.SHARED_TYPE )
   local stateNext = ffi.new( r3e.SHARED_TYPE )
   
-  local samplerate = config.samplerate or 0.1
   local lap = trace.lapData[lap]
   
   local timeBegin = lap.timeBegin
   local timeEnd   = lap.timeBegin + lap.time
-  local rate = fixednum and lap.time/fixednum or samplerate
+  local rate      = lap.time/(numSamples-1)
   
-  local pos     = {}
-  local times   = {}
-  local outputs = {}
   local minmax  = {}
-  local num     = selected and #selected.props or 0
+  local num     = outputs and #outputs or 0
   for i=1,num do
-    outputs[i] = {}
     minmax[i]  = {10000000,-1000000}
   end
   
@@ -52,22 +69,28 @@ local function getSampledData(trace, lap, selected, gradient, fixednum)
   local results = {}
   local resultsPrev = {}
   local resultsNext = {}
-  local time,n = timeBegin,0
   
-  while time < timeEnd do
+  gradient = (gradient or 0) * 0.5
+  
+  for n=0,numSamples-1 do
+    local time = lap.timeBegin + rate * n
+    local laptime = time-timeBegin
+    
     trace:getInterpolatedFrame(state, time)
     
-    local laptime = time-timeBegin
-    table.insert(times, laptime)
+    if (times) then
+      times[n] = laptime
+    end
     -- swizzle pos
-    table.insert(pos, state.Player.Position.X)
-    table.insert(pos, state.Player.Position.Z)
-    table.insert(pos, state.Player.Position.Y)
-    
+    if (pos) then
+      pos[n*3+0] = state.Player.Position.X
+      pos[n*3+1] = state.Player.Position.Z
+      pos[n*3+2] = state.Player.Position.Y
+    end
     if (num > 0) then
       if (gradient > 0) then
-        trace:getInterpolatedFrame(statePrev, time - gradient * samplerate)
-        trace:getInterpolatedFrame(stateNext, time + gradient * samplerate)
+        trace:getInterpolatedFrame(statePrev, time - gradient * rate)
+        trace:getInterpolatedFrame(stateNext, time + gradient * rate)
         selected.fnaccess(resultsPrev, statePrev)
         selected.fnaccess(resultsNext, stateNext)
         for i=1,num do
@@ -79,7 +102,7 @@ local function getSampledData(trace, lap, selected, gradient, fixednum)
             resNext = getMagnitude(resNext)
           end
           local res = resNext-resPrev
-          table.insert(outputs[i], res)
+          outputs[i][n] = res
           checkMinMax(i,res)
         end
       else
@@ -90,21 +113,27 @@ local function getSampledData(trace, lap, selected, gradient, fixednum)
           if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
             res = getMagnitude(res)
           end
-          table.insert(outputs[i], res)
+          outputs[i][n] = res
           checkMinMax(i,res)
         end
       end
     end
-  
-    n = n + 1
-    time = lap.timeBegin + rate * n
   end
-  
-  return n, times, pos, num, outputs, minmax 
+    
+  return minmax 
 end
 
 local function saveCSV(trace, lap, selected, gradient, filename)
-  local samples, times, pos, num, outputs, minmax = getSampledData(trace, lap, selected, gradient)
+  
+  local samples = getNumSamples(trace, lap)
+  local num     = getNumSelected(selected)
+  
+  local times   = {}
+  local pos     = {}
+  local outputs = {}
+  addTables(outputs, num)
+  
+  getSampledData(trace, lap, samples, times, pos, gradient, selected, outputs)
   
   local f = io.open(filename,"wt")
   f:write('"times"; ')
@@ -112,7 +141,7 @@ local function saveCSV(trace, lap, selected, gradient, filename)
     f:write('"'..selected.props[i].name..'"; ')
   end
   f:write("\n")
-  for n=1,samples do
+  for n=0,samples-1 do
     f:write(tostring(times[n]))
     f:write("; ")
     for i=1,num do
@@ -194,6 +223,7 @@ local ID_LAP      = NewID()
 local ID_SLIDER   = NewID()
 local ID_TXTTIME  = NewID()
 local ID_SPNGRAD  = NewID()
+local ID_SPNWIDTH = NewID()
 local ID_BTNEXPORT= NewID()
 local ID_BTNPLOT  = NewID()
 local ID_GRAPH    = NewID()
@@ -224,15 +254,15 @@ local function initLapView(frame)
     return sel and ""..str.." |||" or str
   end
   
-  frame:Connect(ID_LAP, wx.wxEVT_COMMAND_LIST_ITEM_ACTIVATED,
-  function (event)
-    if (not trace) then return end
-    control:SetItem(traceLap-1, 0, lapString(traceLap,false))
-    control:SetItem(event:GetIndex(), 0, lapString(event:GetIndex()+1,true))
-    traceSetLap( event:GetIndex()+1)
-  end)
+  local lastLap
+  local function lap(trace, lap)
+    if (lastLap) then
+      control:SetItem(lastLap-1, 0, lapString(lastLap,false))
+    end
+    control:SetItem(lap-1, 0, lapString(lap,true))
+    lastLap = lap
+  end
 
-  local handlers = {}
   local function open(trace) 
     control:ClearAll()
     control:InsertColumn(0, "Lap")
@@ -245,6 +275,7 @@ local function initLapView(frame)
     end
   end
   
+  registerHandler(events.lap, lap)
   registerHandler(events.open, open)
   
   return control
@@ -305,7 +336,7 @@ local function initPropertyView(frame)
     end
   end
   
-  function control.getSelected()
+  function control.getSelected(num)
     local result = {
       props = {},
       fnaccess = nil,
@@ -314,6 +345,9 @@ local function initPropertyView(frame)
     for i,v in ipairs(props) do
       if (control:GetItemState(i-1, wx.wxLIST_STATE_SELECTED) ~= 0) then
         table.insert(result.props, v)
+        if (num and #result.props == num) then
+          break
+        end
       end
     end
     
@@ -329,20 +363,49 @@ end
 
 ---------------------------------------------
 local gfx = {
-  trace   = nil,
-  lap     = 0,
-  samples = 0,
   samplesAvg = nil,
-  gradient = true,
-  minmax = nil,
+  plot = nil, -- current
+  enabled = {true,},
+  plots = {}, -- all
+  widthmul = 1,
 }
 do
   local glcontext -- the primary context
   local texheat = ffi.new("GLuint[1]")
-  local buftime = ffi.new("GLuint[1]")
-  local bufpos  = ffi.new("GLuint[1]")
   local bufavg  = ffi.new("GLuint[1]")
-  local bufdata = ffi.new("GLuint[1]")
+  
+  local function makeTrackPlot()
+    return {
+      buffers   = ffi.new("GLuint[3]"),
+      textures  = ffi.new("GLuint[3]"),
+      
+      buftimes = nil,
+      bufpos  = nil,
+      bufdata = nil,
+      textimes = nil,
+      texpos  = nil,
+      texdata = nil,
+      
+      trace = nil,
+      lap = 0,
+      samples = 0,
+      minmax  = nil,
+      prop = nil,
+      gradient = true,
+    }
+  end
+  
+  for i=1,MAX_PLOTS do
+    gfx.plots[i] = makeTrackPlot()
+    gfx.plots[i].idx = i
+  end
+  
+  local progTrack 
+  local unisTrack
+  local progBasic 
+  local unisBasic
+  
+  gfx.plot = gfx.plots[1]
   
   function gfx.createSharedContext(canvas)
     local context 
@@ -354,6 +417,8 @@ do
       glcontext = context
       context:SetCurrent(canvas)
       gl.glewInit()
+      
+      --glu.enabledebug()
       
       -- from http://kennethmoreland.com/color-maps/
       local heatmap = {
@@ -397,7 +462,8 @@ do
       -- load heatmap
       -- avoid DSA for webgl folks
       gl.glGenTextures (1, texheat)
-      gl.glBindTexture (gl.GL_TEXTURE_1D, texheat[0])
+      texheat = texheat[0]
+      gl.glBindTexture (gl.GL_TEXTURE_1D, texheat)
       gl.glTexImage1D  (gl.GL_TEXTURE_1D, 0, gl.GL_RGB16F, #heatmap/3, 0,
         gl.GL_RGB, gl.GL_FLOAT, ffi.cast("GLubyte*",heatdata))
       gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
@@ -405,11 +471,37 @@ do
       gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
       gl.glBindTexture (gl.GL_TEXTURE_1D, 0)
       
-      
-      gl.glGenBuffers(1,buftime)
-      gl.glGenBuffers(1,bufpos)
-      gl.glGenBuffers(1,bufdata)
       gl.glGenBuffers(1,bufavg)
+      bufavg = bufavg[0]
+      
+      local function initPlot(t)
+        gl.glGenBuffers(3,t.buffers)
+        gl.glGenTextures(3,t.textures)
+        
+        t.buftimes = t.buffers[0]
+        t.bufpos   = t.buffers[1]
+        t.bufdata  = t.buffers[2]
+        t.textimes = t.textures[0]
+        t.texpos   = t.textures[1]
+        t.texdata  = t.textures[2]
+      end
+      for i=1,MAX_PLOTS do
+        initPlot(gfx.plots[i])
+      end
+      
+      progTrack = glu.loadprogram({
+          GL_VERTEX_SHADER = "shaders/track.vert.glsl",
+          GL_FRAGMENT_SHADER = "shaders/track.frag.glsl",
+        })
+      
+      unisTrack = glu.programuniforms(progTrack)
+      
+      progBasic = glu.loadprogram({
+          GL_VERTEX_SHADER = "shaders/basic.vert.glsl",
+          GL_FRAGMENT_SHADER = "shaders/basic.frag.glsl",
+        })
+      
+      unisBasic = glu.programuniforms(progBasic)
     end
     return context
   end
@@ -417,13 +509,14 @@ do
   function gfx.openUpdate(trace)
     -- find first valid lap
     gfx.samplesAvg = nil
+    gfx.trace    = trace
     for i,v in ipairs(trace.lapData) do
       if (v.valid) then
-        local samples, times, pos = getSampledData(trace, i, nil, nil, AVG_RES)
-        local raw  = ffi.new("float[?]", samples*3,   pos)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufavg[0])
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, ffi.sizeof("float")*3*samples, raw, gl.GL_STATIC_DRAW)
-        gfx.samplesAvg = samples
+        local pos  = ffi.new("float[?]", AVG_RES*3)
+        getSampledData(trace, i, AVG_RES, {}, pos)
+        
+        gl.glNamedBufferDataEXT(bufavg, 4*3*AVG_RES, pos, gl.GL_STATIC_DRAW)
+        gfx.samplesAvg = AVG_RES
         break
       end
     end
@@ -432,27 +525,31 @@ do
   registerHandler(events.open, gfx.openUpdate)
 
   function gfx.lapUpdate(trace, lap)
+    local plot = gfx.plot
+    local samples = getNumSamples(trace, lap)
+    
     -- create and fill new buffers
-    local samples, times, pos = getSampledData(trace, lap)
-    gfx.trace   = trace
-    gfx.samples = samples
-    gfx.lap     = lap
-    gfx.minmax  = {-1,1}
-    gfx.gradient= true
+    plot.trace   = trace
+    plot.samples = samples
+    plot.lap     = lap
+    plot.minmax  = nil
+    plot.gradient= true
+    plot.info    = "Driveline"
     
-    local raw  = ffi.new("float[?]", samples*3,   pos)
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufpos[0])
-    gl.glBufferData(gl.GL_ARRAY_BUFFER, ffi.sizeof("float")*3*samples, raw, gl.GL_STATIC_DRAW)
+    local pos    = ffi.new("float[?]", samples*3)
+    local times  = ffi.new("float[?]", samples)
+    local data   = ffi.new("float[?]", samples,    0)
     
-    local raw = ffi.new("float[?]", samples, times)
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, buftime[0])
-    gl.glBufferData(gl.GL_ARRAY_BUFFER, ffi.sizeof("float")*samples, raw, gl.GL_STATIC_DRAW)
+    getSampledData(trace, lap, samples, times, pos)
     
-    local raw  = ffi.new("float[?]", samples, 0)
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufdata[0])
-    gl.glBufferData(gl.GL_ARRAY_BUFFER, ffi.sizeof("float")*samples, raw, gl.GL_STATIC_DRAW)
+    gl.glNamedBufferDataEXT( plot.bufpos, 4*3*samples, pos, gl.GL_STATIC_DRAW)
+    gl.glTextureBufferEXT( plot.texpos, gl.GL_TEXTURE_BUFFER, gl.GL_RGB32F, plot.bufpos)
+
+    gl.glNamedBufferDataEXT( plot.buftimes, 4*samples, times, gl.GL_STATIC_DRAW)
+    gl.glTextureBufferEXT( plot.textimes, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.buftimes )
     
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+    gl.glNamedBufferDataEXT( plot.bufdata, 4*samples, data, gl.GL_STATIC_DRAW)
+    gl.glTextureBufferEXT( plot.texdata, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.bufdata )
   end
   registerHandler(events.lap, gfx.lapUpdate)
   
@@ -462,25 +559,32 @@ do
   registerHandler(events.time, gfx.timeUpdate)
 
   function gfx.propertyUpdate(trace, lap, selected, gradient)
-    if (not selected or #selected.props == 0) then
+    local plot = gfx.plot
+    
+    if (getNumSelected(selected)==0) then
       return
     end
     
-    local samples, times, pos, n, outputs, minmax = getSampledData(trace, lap, selected, gradient)
-    samples = math.min(gfx.samples,samples)
-    outputs = outputs[1]
-    minmax = minmax[1]
+    if (plot.trace ~= trace or plot.lap ~= lap) then
+      gfx.lapUpdate(trace,lap)
+    end
     
-    gfx.minmax = minmax
-    gfx.gradient = gradient > 0
+    local samples = plot.samples
     
-    local dataraw  = ffi.new("float[?]", samples, outputs)
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufdata[0])
-    gl.glBufferSubData(gl.GL_ARRAY_BUFFER, 0, ffi.sizeof("float")*samples, dataraw)
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+    local outputs = {
+      ffi.new("float[?]", samples)
+    }
     
-    local res = selected.props[1].name..string.format(" [ %.2f, %2.f ] ", minmax[1],minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
-    return res
+    local minmax = getSampledData(trace, lap, samples, nil, nil, gradient, selected, outputs)
+    
+    plot.prop   = selected.props[1]
+    plot.minmax = minmax[1]
+    plot.gradient = gradient > 0
+    
+    gl.glNamedBufferSubDataEXT(plot.bufdata, 0, 4*samples, outputs[1])
+    
+    plot.info = plot.prop.name..string.format(" [ %.2f, %2.f ] ", plot.minmax[1],plot.minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
+    return plot.info
   end
   
   function gfx.drawTrack(w,h,zoom,pan)
@@ -513,81 +617,163 @@ do
     
     gl.glDisable(gl.GL_DEPTH_TEST)
     
-    -- uh writing fixed function GL makes me feel at least 10 years younger
-    gl.glMatrixMode(gl.GL_PROJECTION)
-    gl.glLoadIdentity()
-    gl.glOrtho(-1*aspectw,1*aspectw, -1*aspecth, 1*aspecth, -1, 1)
-    
-    gl.glColor4f(1,1,1,1)
-    
-    gl.glMatrixMode(gl.GL_MODELVIEW)
-    gl.glLoadIdentity()
+    local viewProjTM = m4.ortho(m4.float(), -1*aspectw,1*aspectw, -1*aspecth, 1*aspecth, -1, 1)
     local scale = math.max(hrange[1],hrange[2])
     if (rotate) then
-      gl.glRotatef(-90,0,0,1)
+      m4.mulA( viewProjTM, m4.rotatedXYZ( m4.tab(), v3.tab(0,0,math.rad(-90)) ))
     end
-    gl.glScalef(1/scale, 1/scale, 1/scale)
-    -- subtract min+range/2
-    gl.glTranslatef(-gfx.trace.posMin[1]-hrange[1],
+    m4.mulA( viewProjTM, m4.scaled( m4.tab(), 1/scale, 1/scale, 1/scale ))
+    m4.mulA( viewProjTM, m4.translated( m4.tab(),
+                    -gfx.trace.posMin[1]-hrange[1],
                     -gfx.trace.posMin[3]-hrange[2],
-                    -gfx.trace.posMin[2]-hrange[3])
+                    -gfx.trace.posMin[2]-hrange[3]))
+
+
+    gl.glEnable(gl.GL_SAMPLE_ALPHA_TO_COVERAGE)
     
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufpos[0])
-    gl.glVertexPointer(3, gl.GL_FLOAT, 4*3*stride, nil)
-    gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
+    local numPlots = 0
+    local numRacelines = 0
+    local plots = {}
     
-    gl.glBindTexture(gl.GL_TEXTURE_1D, texheat[0])
-    gl.glEnable(gl.GL_TEXTURE_1D)
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufdata[0])
-    gl.glTexCoordPointer(1, gl.GL_FLOAT, 4*stride, nil)
-    gl.glEnableClientState(gl.GL_TEXTURE_COORD_ARRAY)
-    gl.glMatrixMode(gl.GL_TEXTURE)
-    gl.glLoadIdentity()
-    
-    local range = math.max(gfx.minmax[2],math.abs(gfx.minmax[1]))
-    if (gfx.gradient) then
-      -- [-range,range]
-      gl.glScalef(1/(range*2),1,1)
-      gl.glTranslatef(range,0,0)
-    else
-      -- [0,rage]
-      gl.glScalef(1/range,1,1)
+    for i=1,MAX_PLOTS do
+      if (gfx.enabled[i] and gfx.plots[i].trace) then 
+        plots[numPlots+1] = gfx.plots[i]
+        numRacelines = numRacelines + (gfx.plots[i].minmax == nil and 1 or 0)
+        numPlots = numPlots + 1
+      end
     end
     
-    local width = 8
-    gl.glLineWidth(width)
-    gl.glEnable(gl.GL_BLEND)
-    gl.glEnable(gl.GL_POINT_SMOOTH)
-    gl.glEnable(gl.GL_LINE_SMOOTH)
-    gl.glPointSize(width)
+    local minmaxs = {}
+    -- things that are in same coordinate space, should use merged
+    -- minmax for graph to be comparable
+    for i=1,numPlots do
+      local a = plots[i]
+      minmaxs[i] = minmaxs[i] or a.minmax
+      -- compare with others
+      for n=i+1,numPlots do
+        local b = plots[n]
+        
+        if (a.minmax and b.minmax and 
+            a.prop and b.prop and
+            a.gradient == b.gradient and
+          (
+            (a.prop.name == b.prop.name) or
+            (a.prop.name:match("Temp") ~= nil) == (b.prop.name:match("Temp") ~= nil) or 
+            (a.prop.name:match("Pressure") ~= nil) == (b.prop.name:match("Pressure") ~= nil) or
+            (a.prop.name:match("Time") ~= nil) == (b.prop.name:match("Time") ~= nil) or
+            (a.prop.name:match("Pedal") ~= nil) == (b.prop.name:match("Pedal") ~= nil)
+          ))
+        then
+          local merged = {math.min(a.minmax[1],b.minmax[1]), math.max(a.minmax[2],b.minmax[2])}
+          minmaxs[i] = merged
+          minmaxs[n] = merged
+        end
+      end
+    end
     
-    gl.glDrawArrays(gl.GL_POINTS, 0, math.floor(gfx.samples/stride))
-    gl.glDrawArrays(gl.GL_LINE_STRIP, 0, math.floor(gfx.samples/stride))
+    local curRaceline = 0
+    for i=1,numPlots do
+      local plot = plots[i]
     
-    gl.glDisableClientState(gl.GL_TEXTURE_COORD_ARRAY)
-    gl.glDisable(gl.GL_TEXTURE_1D)
+      local dataTM = m4.float()
+      
+      local isline = plot.minmax == nil
+
+      local minmax = minmaxs[i] or {-1,1}
+      local range = math.max(minmax[2],math.abs(minmax[1]))
+      if (plot.gradient) then
+        -- [-range,range]
+        m4.mulA( dataTM, m4.scaled( m4.tab(), 1/(range*2),1,1 ))
+        m4.mulA( dataTM, m4.translated( m4.tab(), range,0,0 ) )
+      else
+        -- [0,range]
+        m4.mulA( dataTM, m4.scaled( m4.tab(), 1/range,1,1 ))
+      end
+      if (isline) then
+        local offset = numRacelines > 1 and ((curRaceline)/(numRacelines-1))*1.5-0.75 or -0.5
+        m4.mulA( dataTM, m4.translated( m4.tab(), offset,0,0 ) )
+      end
+      
+      local numPoints = math.floor(plot.samples/stride)
+      
+      gl.glUseProgram(progTrack)
+      
+      gl.glBindMultiTextureEXT(gl.GL_TEXTURE0, gl.GL_TEXTURE_BUFFER, plot.texpos)
+      gl.glBindMultiTextureEXT(gl.GL_TEXTURE1, gl.GL_TEXTURE_BUFFER, plot.texdata)
+      gl.glBindMultiTextureEXT(gl.GL_TEXTURE2, gl.GL_TEXTURE_BUFFER, plot.textimes)
+      gl.glBindMultiTextureEXT(gl.GL_TEXTURE3, gl.GL_TEXTURE_1D, texheat)
+      
+      gl.glUniformMatrix4fv( unisTrack.viewProjTM, 1, gl.GL_FALSE, viewProjTM )
+      gl.glUniformMatrix4fv( unisTrack.dataTM, 1, gl.GL_FALSE, dataTM)
+      
+      gl.glUniform4f(unisTrack.color, 1,1,1,1)
+      
+      if (isline) then
+        gl.glUniform1f(unisTrack.shift, 0)
+        gl.glUniform1f(unisTrack.width, 6 * gfx.widthmul)
+      else
+        local width     = numPlots > 1 and 12/numPlots or 10
+        local shift     = numPlots > 1 and width*2.5 or 0
+        local shiftbase = numPlots > 1 and -((numPlots-1)*shift + width*2)*0.5+width or 0
+        gl.glUniform1f(unisTrack.shift, shift * (i-1) + shiftbase)
+        gl.glUniform1f(unisTrack.width, width * gfx.widthmul)
+      end
+      
+      if (isline) then
+        local width = 0.7 --1/numRacelines
+        local start = i*0.5
+        gl.glUniform4f(unisTrack.timecontrol, 1, start, width, 0)
+      else
+        gl.glUniform4f(unisTrack.timecontrol, 1,1,1,1)
+      end
+      
+      gl.glUniform1i(unisTrack.numPoints, numPoints)
+      
+      gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, numPoints * 2)
+      
+      gl.glDisableVertexAttribArray(0)
+      gl.glDisableVertexAttribArray(1)
+      
+      gl.glBindMultiTextureEXT(gl.GL_TEXTURE0, gl.GL_TEXTURE_BUFFER, 0)
+      gl.glBindMultiTextureEXT(gl.GL_TEXTURE1, gl.GL_TEXTURE_BUFFER, 0)
+      gl.glBindMultiTextureEXT(gl.GL_TEXTURE2, gl.GL_TEXTURE_BUFFER, 0)
+      gl.glBindMultiTextureEXT(gl.GL_TEXTURE3, gl.GL_TEXTURE_1D, 0)
+      
+      if (isline) then
+        curRaceline = curRaceline + 1
+      end
+    end
     
     if (gfx.samplesAvg) then
-      local clr = 0.7
-      gl.glColor4f(clr,clr,clr,0)
-      gl.glLineWidth(1)
-      gl.glBindBuffer(gl.GL_ARRAY_BUFFER, bufavg[0])
-      gl.glVertexPointer(3, gl.GL_FLOAT, 4*3, nil)
       
-      gl.glDrawArrays(gl.GL_LINE_STRIP, 0, gfx.samplesAvg)
+      local samples = gfx.samplesAvg
+      local buf     = bufavg
       
-      gl.glLineWidth(width)
+      gl.glEnable(gl.GL_POINT_SMOOTH)
+    
+      gl.glUseProgram(progBasic)
+      gl.glUniformMatrix4fv( unisBasic.viewProjTM, 1, gl.GL_FALSE, viewProjTM)
+    
+      local clr = 0.3
+      gl.glUniform4f(unisBasic.color, clr,clr,clr,1)
+      
+      gl.glLineWidth(1.5)
+      gl.glBindBuffer(gl.GL_ARRAY_BUFFER, buf)
+      gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 4*3, nil)
+      gl.glEnableVertexAttribArray(0)
+      
+      gl.glDrawArrays(gl.GL_LINE_STRIP, 0, samples)
+      
+      gl.glDisableVertexAttribArray(0)
+      
+      gl.glUniform4f(unisBasic.color, 0,0,0,1)
+      gl.glPointSize(16)
+      gl.glBegin(gl.GL_POINTS)
+      gl.glVertexAttrib3f(0, gfx.pos[1], gfx.pos[2], gfx.pos[3])
+      gl.glEnd()
+      
+      gl.glDisable(gl.GL_POINT_SMOOTH)
     end
-    gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
-    
-    gl.glColor4f(0,0,0,1)
-    gl.glBegin(gl.GL_POINTS)
-    gl.glVertex3f(gfx.pos[1], gfx.pos[2], gfx.pos[3])
-    gl.glEnd()
-    
-    gl.glDisable(gl.GL_BLEND)
-    gl.glDisable(gl.GL_POINT_SMOOTH)
-    gl.glDisable(gl.GL_LINE_SMOOTH)
   end
 end
 ---------------------------------------------
@@ -598,8 +784,7 @@ local function initTrackView(frame)
   local canvas = wx.wxGLCanvas(frame, wx.wxID_ANY, {
   wx.WX_GL_RGBA, 1, wx.WX_GL_DOUBLEBUFFER, 1, 
   wx.WX_GL_MIN_RED, 8, wx.WX_GL_MIN_GREEN, 8, wx.WX_GL_MIN_BLUE, 8, wx.WX_GL_MIN_ALPHA, 8,
-  wx.WX_GL_STENCIL_SIZE, 8, wx.WX_GL_DEPTH_SIZE, 24,
-  wx.WX_GL_SAMPLE_BUFFERS, 1, wx.WX_GL_SAMPLES, 4
+  wx.WX_GL_STENCIL_SIZE, 0, wx.WX_GL_DEPTH_SIZE, 0
   },
   wx.wxDefaultPosition, wx.wxDefaultSize, wx.wxEXPAND + wx.wxFULL_REPAINT_ON_RESIZE)
 
@@ -609,12 +794,33 @@ local function initTrackView(frame)
 
   local context = gfx.createSharedContext(canvas)
   
+  local res = ffi.new("GLuint[1]")
+  gl.glGenTextures(1, res)
+  local tex = res[0]
+  gl.glGenFramebuffers(1, res)
+  local fbo = res[0]
+  
+  local lastw,lasth
+  
   local function render()
     
     context:SetCurrent(canvas)
     
     local sz = canvas:GetSize()
     local w,h = sz:GetWidth(), sz:GetHeight()
+    
+    gl.glBindFramebuffer( gl.GL_FRAMEBUFFER, fbo)
+    
+    if (lastw ~= w or lasth ~= h) then
+      gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, tex)
+      gl.glTexImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, config.viewer.msaa or 8,
+        gl.GL_RGBA8, w, h, gl.GL_FALSE)
+      gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, 
+        gl.GL_TEXTURE_2D_MULTISAMPLE, tex, 0)
+      
+      lastw = w
+      lasth = h
+    end
    
     gl.glViewport(0,0,w,h)
 
@@ -623,17 +829,38 @@ local function initTrackView(frame)
     gl.glClearColor(1, 1, 1, 1)
     gl.glClear(gl.GL_COLOR_BUFFER_BIT + gl.GL_DEPTH_BUFFER_BIT + gl.GL_STENCIL_BUFFER_BIT)
     
-    if (gfx.minmax) then 
+    if (gfx.trace) then 
       gfx.drawTrack(w,h,zoom,pan)
     end
 
+    gl.glBindFramebuffer( gl.GL_DRAW_FRAMEBUFFER, 0)
+    gl.glBlitFramebuffer( 0,0, w, h, 0,0, w, h, gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR)
     canvas:SwapBuffers()
   end
+  
+  function canvas.changed()
+    local txt = ""
+    local first = true
+    local num = 0
+    for i=1,MAX_PLOTS do
+      if (gfx.enabled[i] and gfx.plots[i].trace) then
+        local plot = gfx.plots[i]
+        txt = txt..(first and "" or "\n").." Lap "..plot.lap.." "..plot.info
+        first = false
+        num = num + 1
+      end
+    end
+    if (num > 1) then
+      txt = "Plot order left to right:\n"..txt
+    end
+    lbl:SetLabel(txt)
+    canvas:Refresh()
+  end
+  
   canvas:Connect(wx.wxEVT_PAINT, render)
   --canvas:Connect(wx.wxEVT_SIZE,  render)
   
-  registerHandler(events.lap, function() lbl:SetLabel(" No Data ") end)
-  registerHandler(events.time, function() canvas:Refresh() end)
+  registerHandler(events.time, function() canvas.changed() end)
   
   return canvas
 end
@@ -708,9 +935,30 @@ local function initApp()
   local btnexport = wx.wxButton( toolsAction, ID_BTNEXPORT, "Export Sel. Props",wx.wxDefaultPosition, wx.wxSize(116,24))
   btnexport:SetToolTip("Export selected properties to .csv")
   local btnplot = wx.wxButton( toolsAction, ID_BTNPLOT, "Plot Sel. Props",wx.wxDefaultPosition, wx.wxSize(100,24))
-  local lblgrad = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Gradient Width:", wx.wxDefaultPosition, wx.wxSize(86,24), wx.wxALIGN_RIGHT)
+  local lblgrad = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Gradient:", wx.wxDefaultPosition, wx.wxSize(56,24), wx.wxALIGN_RIGHT)
   local spngrad = wx.wxSpinCtrl(toolsAction, ID_SPNGRAD, "", wx.wxDefaultPosition, wx.wxSize(50,24))
   
+  local lblplot = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Selector", wx.wxDefaultPosition, wx.wxSize(50,24), wx.wxALIGN_RIGHT)
+  local lblvis  = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Visible", wx.wxDefaultPosition, wx.wxSize(40,24), wx.wxALIGN_RIGHT)
+  
+  local spnwidth = wx.wxSpinCtrl(toolsAction, ID_SPNWIDTH, "", wx.wxDefaultPosition, wx.wxSize(60,24),
+    wx.wxSP_ARROW_KEYS, 1, 100, 10)
+  
+  local radios = {}
+  for i=1,MAX_PLOTS do
+    local id  = NewID()
+    local rad = wx.wxRadioButton(toolsAction, id, string.char(64+i), wx.wxDefaultPosition, wx.wxDefaultSize,  i==1 and wx.wxRB_GROUP or 0)
+    rad.id = id
+    radios[i] = rad
+  end
+  local checks = {}
+  for i=1,MAX_PLOTS do
+    local id  = NewID()
+    local chk = wx.wxCheckBox(toolsAction, id, string.char(64+i), wx.wxDefaultPosition, wx.wxDefaultSize)
+    if (i == 1) then chk:SetValue(true) end
+    chk.id = id
+    checks[i] = chk
+  end
   frame.btnexport = btnexport
   frame.btnplot = btnplot
   frame.lbltime = lbltime
@@ -718,6 +966,8 @@ local function initApp()
   frame.lblgrad = lblgrad
   frame.spngrad = spngrad
   frame.slider  = slider
+  frame.radios  = radios
+  frame.checks  = checks
   
   local sizer = wx.wxBoxSizer(wx.wxHORIZONTAL)
   sizer:Add(lbltime, 0, wx.wxALL,4)
@@ -730,6 +980,15 @@ local function initApp()
   sizer:Add(btnplot, 0, wx.wxALL)
   sizer:Add(lblgrad, 0, wx.wxALL,4)
   sizer:Add(spngrad, 0, wx.wxALL)
+  sizer:Add(lblplot, 0, wx.wxALL,4)
+  for i,v in ipairs(radios) do
+    sizer:Add(v, 0, wx.wxALL, 4)
+  end
+  sizer:Add(lblvis, 0, wx.wxALL,4)
+  for i,v in ipairs(checks) do
+    sizer:Add(v, 0, wx.wxALL, 4)
+  end
+  sizer:Add(spnwidth, 0, wx.wxALL)
   toolsAction:SetSizer(sizer)
   
   local lapSplitter = wx.wxSplitterWindow( frame, wx.wxID_ANY )
@@ -770,6 +1029,25 @@ local function initApp()
   end
   registerHandler(events.lap, timelap)
   
+  local function setVisible(i, state)
+    checks[i]:SetValue(state)
+    gfx.enabled[i] = state
+  end
+  
+  frame:Connect(ID_LAP, wx.wxEVT_COMMAND_LIST_ITEM_ACTIVATED,
+  function (event)
+    if (not trace) then return end
+
+    setVisible(gfx.plot.idx, true)
+    traceSetLap( event:GetIndex()+1)
+  end)
+
+  tools:Connect(ID_SPNWIDTH, wx.wxEVT_COMMAND_SPINCTRL_UPDATED,
+  function(event)
+    gfx.widthmul = spnwidth:GetValue()/10
+    trackview:Refresh()
+  end)
+  
   tools:Connect(ID_SLIDER, wx.wxEVT_COMMAND_SLIDER_UPDATED,
   function (event)
     if (not traceLapData) then return end
@@ -782,24 +1060,58 @@ local function initApp()
     txttime:ChangeValue(toMS(laptime))
   end)
 
+  for i=1,MAX_PLOTS do
+    local chk = checks[i].id
+    local rad = radios[i].id
+    tools:Connect(chk, wx.wxEVT_COMMAND_CHECKBOX_CLICKED,
+      function (event)
+        gfx.enabled[i] = event:IsChecked()
+        
+        trackview.changed()
+      end)
+    tools:Connect(rad, wx.wxEVT_COMMAND_RADIOBUTTON_SELECTED,
+      function (event)
+        gfx.plot = gfx.plots[i]
+      end)
+  end
+
   props:Connect(ID_PROPERTY, wx.wxEVT_COMMAND_LIST_ITEM_ACTIVATED,
     function (event)
-      local res = gfx.propertyUpdate(trace, traceLap, props.getSelected(), spngrad:GetValue())
-      if (res) then
-        trackview.lbl:SetLabel(" Lap:"..traceLap.." "..res)
-      end
-      trackview:Refresh()
+      local active = gfx.plot.idx
       
+      setVisible(active, true)
+      
+      gfx.propertyUpdate(trace, traceLap, props.getSelected(1), spngrad:GetValue())
+      trackview.changed()
     end)
 
   tools:Connect(ID_BTNPLOT, wx.wxEVT_COMMAND_BUTTON_CLICKED,
     function (event)
-      local res = gfx.propertyUpdate(trace, traceLap, props.getSelected(), spngrad:GetValue())
-      if (res) then
-        trackview.lbl:SetLabel(" Lap:"..traceLap.." "..res)
-      end
-      trackview:Refresh()
+      local selected = props.getSelected(4)
+      local num = getNumSelected(selected)
+      local active = gfx.plot.idx
       
+      for i=1,MAX_PLOTS do
+        setVisible(i, false)
+      end
+      
+      if (num == 1) then
+        setVisible(active, true)
+        gfx.propertyUpdate(trace, traceLap, selected, spngrad:GetValue())
+      elseif( num > 1) then
+        for i=1,num do
+          local sel = {props={ selected.props[i] }, }
+          sel.fnaccess = r3emap.makeAccessor(sel.props)
+          
+          gfx.plot = gfx.plots[i]
+          setVisible(i, true)
+          
+          local res = gfx.propertyUpdate(trace, traceLap, sel, spngrad:GetValue())
+        end
+        gfx.plot = gfx.plots[active]
+        
+      end
+      trackview.changed()
     end)
     
   tools:Connect(ID_BTNEXPORT, wx.wxEVT_COMMAND_BUTTON_CLICKED,

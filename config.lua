@@ -38,4 +38,4 @@ replay.playspeed = 1
 viewer.propertyfilter = nil
 
 -- for export and plots, sample at this resolution (seconds)
-viewer.samplerate = 0.5
+viewer.samplerate = 0.25
