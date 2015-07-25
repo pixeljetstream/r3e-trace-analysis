@@ -38,4 +38,10 @@ replay.playspeed = 1
 viewer.propertyfilter = nil
 
 -- for export and plots, sample at this resolution (seconds)
-viewer.samplerate = 0.25
+viewer.samplerate = 0.1
+
+-- multisampling level
+viewer.msaa = 8
+
+-- remove label during animation
+viewer.animationremoveslabel = false

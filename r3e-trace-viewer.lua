@@ -1082,7 +1082,9 @@ local function initApp()
     function (event)
       if (event:IsChecked()) then
         timer:Start(16)
+        if (config.viewer.animationremoveslabel) then trackview.lbl:Hide() end
       else
+        if (config.viewer.animationremoveslabel) then trackview.lbl:Show() end
         timer:Stop()
       end
     end)
