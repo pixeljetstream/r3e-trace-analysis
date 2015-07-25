@@ -27,11 +27,13 @@ bridge of R3E. Frame- or time-based replaying is supported. The state values get
 
 A tool to open a trace file and inspect all data. Allows to browse through individual laps recorded within the session. Double-click a lap to make it active. Laps with "invalid" times (shortcuts...) are in brackets "()". The current selected lap is marked with "|||".
 
-Use the selectors (A,B,C,D) to compare different values or laps. 
+The current lap will be rendered in the track-view. The first valid lap of a file is drawn as fine line on top, as well as a marker with the current position.
+
+Use the selectors (A,B,C,D) to compare different values or laps. A selector change will not
+cause any redraw, only selecting a lap or property will. With the "Animated driving line" feature 
+you can improve the perception of the stippled driving lines.
 
 ![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_compare.png)
-
-The current lap will be rendered in the track-view. The first valid lap of a file is drawn as fine line on top, as well as a marker with the current position.
 
 When double-clicking a single property it is printed in the track view. The current "Gradient" setting is applied, see explanation further down. It allows to visualize up- or down shifts for example.
 
@@ -49,9 +51,7 @@ Positive values means the properties increased in the given gradient time span (
 
 TODO:
 
-* Zoom and pan for graphs
-* Graphs for plotting and comparing data 
-* Flexible expression editor what to visualize (raw values, gradients...)
+* Zoom and pan
 
 ### Settings
 
@@ -59,6 +59,7 @@ The default settings are stored in "config.lua". Create "config-user.lua" to ove
 
 ### History
 * 25.07.2015:
+ * Animated driving line
  * lap comparison via selector api
  * GLSL used for rendering, 8x msaa default
 * 19.07.2015:

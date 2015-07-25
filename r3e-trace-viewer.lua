@@ -20,6 +20,8 @@ local APP_NAME  = "R3E Trace Viewer"
 local SLIDER_RES = 2048
 local AVG_RES    = 2048
 local MAX_PLOTS  = 4
+
+GLOBALS = {}
 ---------------------------------------------
 
 local function addTables(tab,n)
@@ -503,6 +505,7 @@ do
       
       unisBasic = glu.programuniforms(progBasic)
     end
+    table.insert(GLOBALS,context)
     return context
   end
   
@@ -534,7 +537,7 @@ do
     plot.lap     = lap
     plot.minmax  = nil
     plot.gradient= true
-    plot.info    = "Driveline"
+    plot.info    = "Driving line"
     
     local pos    = ffi.new("float[?]", samples*3)
     local times  = ffi.new("float[?]", samples)
@@ -616,6 +619,7 @@ do
     aspecth = aspecth * 1.1
     
     gl.glDisable(gl.GL_DEPTH_TEST)
+    gl.glEnable(gl.GL_SAMPLE_ALPHA_TO_COVERAGE)
     
     local viewProjTM = m4.ortho(m4.float(), -1*aspectw,1*aspectw, -1*aspecth, 1*aspecth, -1, 1)
     local scale = math.max(hrange[1],hrange[2])
@@ -627,9 +631,6 @@ do
                     -gfx.trace.posMin[1]-hrange[1],
                     -gfx.trace.posMin[3]-hrange[2],
                     -gfx.trace.posMin[2]-hrange[3]))
-
-
-    gl.glEnable(gl.GL_SAMPLE_ALPHA_TO_COVERAGE)
     
     local numPlots = 0
     local numRacelines = 0
@@ -706,7 +707,7 @@ do
       gl.glUniformMatrix4fv( unisTrack.viewProjTM, 1, gl.GL_FALSE, viewProjTM )
       gl.glUniformMatrix4fv( unisTrack.dataTM, 1, gl.GL_FALSE, dataTM)
       
-      gl.glUniform4f(unisTrack.color, 1,1,1,1)
+      gl.glUniform4f(unisTrack.color, 1,1,1,0)
       
       if (isline) then
         gl.glUniform1f(unisTrack.shift, 0)
@@ -721,7 +722,7 @@ do
       
       if (isline) then
         local width = 0.7 --1/numRacelines
-        local start = i*0.5
+        local start = i*0.5 - (os.clock() % 1)
         gl.glUniform4f(unisTrack.timecontrol, 1, start, width, 0)
       else
         gl.glUniform4f(unisTrack.timecontrol, 1,1,1,1)
@@ -777,21 +778,32 @@ do
   end
 end
 ---------------------------------------------
-
 local function initTrackView(frame)
   local init = true
-
-  local canvas = wx.wxGLCanvas(frame, wx.wxID_ANY, {
+  
+  --local subframe = wx.wxWindow(frame, wx.wxID_ANY)
+  
+  local canvas = wx.wxGLCanvas(subframe or frame, wx.wxID_ANY, {
   wx.WX_GL_RGBA, 1, wx.WX_GL_DOUBLEBUFFER, 1, 
   wx.WX_GL_MIN_RED, 8, wx.WX_GL_MIN_GREEN, 8, wx.WX_GL_MIN_BLUE, 8, wx.WX_GL_MIN_ALPHA, 8,
   wx.WX_GL_STENCIL_SIZE, 0, wx.WX_GL_DEPTH_SIZE, 0
   },
   wx.wxDefaultPosition, wx.wxDefaultSize, wx.wxEXPAND + wx.wxFULL_REPAINT_ON_RESIZE)
 
-  --local lbl = wx.wxTextCtrl(canvas, wx.wxID_ANY, "Blah",wx.wxDefaultPosition, wx.wxSize(78,24), wx.wxTE_READONLY)
-  local lbl = wx.wxStaticText(canvas, wx.wxID_ANY, " No Data ")
-  canvas.lbl = lbl
+  subframe = subframe or canvas
 
+  local lbl = wx.wxStaticText(subframe, wx.wxID_ANY, " No Data ")
+  subframe.lbl = lbl
+  subframe.canvas = canvas
+  
+  if (subframe ~= canvas) then
+    local sizer = wx.wxBoxSizer(wx.wxVERTICAL)
+    sizer:Add(panel, 0, wx.wxALL)
+    sizer:Add(canvas, 1, wx.wxEXPAND)
+    subframe:SetSizer(sizer)
+    subframe.sizer = sizer
+  end
+  
   local context = gfx.createSharedContext(canvas)
   
   local res = ffi.new("GLuint[1]")
@@ -803,7 +815,7 @@ local function initTrackView(frame)
   local lastw,lasth
   
   local function render()
-    
+    --local dc = wx.wxPaintDC(canvas)
     context:SetCurrent(canvas)
     
     local sz = canvas:GetSize()
@@ -821,7 +833,7 @@ local function initTrackView(frame)
       lastw = w
       lasth = h
     end
-   
+    
     gl.glViewport(0,0,w,h)
 
     gl.glClearDepth(1)
@@ -836,9 +848,10 @@ local function initTrackView(frame)
     gl.glBindFramebuffer( gl.GL_DRAW_FRAMEBUFFER, 0)
     gl.glBlitFramebuffer( 0,0, w, h, 0,0, w, h, gl.GL_COLOR_BUFFER_BIT, gl.GL_LINEAR)
     canvas:SwapBuffers()
+    --dc:delete()
   end
   
-  function canvas.changed()
+  function subframe.changed()
     local txt = ""
     local first = true
     local num = 0
@@ -854,21 +867,25 @@ local function initTrackView(frame)
       txt = "Plot order left to right:\n"..txt
     end
     lbl:SetLabel(txt)
-    canvas:Refresh()
+    subframe:Refresh()
   end
   
   canvas:Connect(wx.wxEVT_PAINT, render)
-  --canvas:Connect(wx.wxEVT_SIZE,  render)
   
-  registerHandler(events.time, function() canvas.changed() end)
+  registerHandler(events.time, function() subframe.changed() end)
   
-  return canvas
+  return subframe
 end
 
 ---------------------------------------------
 local function initApp()
-  local frame = wx.wxFrame(wx.NULL, wx.wxID_ANY, APP_NAME,
+  local ID_MAIN = NewID()
+  local frame = wx.wxFrame(wx.NULL, ID_MAIN, APP_NAME,
   wx.wxDefaultPosition, wx.wxSize(1024, 768), wx.wxDEFAULT_FRAME_STYLE)
+
+  local ID_TIMER = NewID()
+  local timer = wx.wxTimer(frame, ID_TIMER)
+  frame.timer = timer
 
   -- create a simple file menu
   local fileMenu = wx.wxMenu()
@@ -893,8 +910,17 @@ local function initApp()
 
   -- connect the selection event of the exit menu item to an
   -- event handler that closes the window
+  
+  frame:Connect(ID_MAIN, wx.wxEVT_CLOSE_WINDOW,
+    function(event)
+      if (timer:IsRunning()) then timer:Stop() end
+      frame:Destroy()
+    end)
+  
   frame:Connect(wx.wxID_EXIT, wx.wxEVT_COMMAND_MENU_SELECTED,
-    function (event) frame:Close() end )
+    function (event)
+      frame:Close() 
+    end )
               
   -- open file dialog
   frame:Connect(wx.wxID_OPEN, wx.wxEVT_COMMAND_MENU_SELECTED,
@@ -959,6 +985,9 @@ local function initApp()
     chk.id = id
     checks[i] = chk
   end
+  local ID_CHKANIM = NewID()
+  local chkanim = wx.wxCheckBox(toolsAction, ID_CHKANIM, "Animated\ndriving line", wx.wxDefaultPosition, wx.wxDefaultSize)
+  
   frame.btnexport = btnexport
   frame.btnplot = btnplot
   frame.lbltime = lbltime
@@ -968,6 +997,7 @@ local function initApp()
   frame.slider  = slider
   frame.radios  = radios
   frame.checks  = checks
+  frame.chkanim = chkanim
   
   local sizer = wx.wxBoxSizer(wx.wxHORIZONTAL)
   sizer:Add(lbltime, 0, wx.wxALL,4)
@@ -989,6 +1019,7 @@ local function initApp()
     sizer:Add(v, 0, wx.wxALL, 4)
   end
   sizer:Add(spnwidth, 0, wx.wxALL)
+  sizer:Add(chkanim,  0, wx.wxLEFT,4)
   toolsAction:SetSizer(sizer)
   
   local lapSplitter = wx.wxSplitterWindow( frame, wx.wxID_ANY )
@@ -1012,13 +1043,13 @@ local function initApp()
   local props = initPropertyView(propSplitter)
   frame.props = props
   
-  --local trackview = wx.wxPanel( propSplitter, wx.wxID_ANY)
   local trackview = initTrackView(propSplitter)
   frame.trackview = trackview
   
   lapSplitter:SplitVertically(lap,propSplitter)
   propSplitter:SplitVertically(props,trackview)
   
+ 
   ----------
   -- events
   
@@ -1034,6 +1065,11 @@ local function initApp()
     gfx.enabled[i] = state
   end
   
+  frame:Connect(ID_TIMER, wx.wxEVT_TIMER,
+    function(event)
+      trackview:Refresh()
+    end)
+  
   frame:Connect(ID_LAP, wx.wxEVT_COMMAND_LIST_ITEM_ACTIVATED,
   function (event)
     if (not trace) then return end
@@ -1042,10 +1078,19 @@ local function initApp()
     traceSetLap( event:GetIndex()+1)
   end)
 
+  tools:Connect(ID_CHKANIM, wx.wxEVT_COMMAND_CHECKBOX_CLICKED,
+    function (event)
+      if (event:IsChecked()) then
+        timer:Start(16)
+      else
+        timer:Stop()
+      end
+    end)
+
   tools:Connect(ID_SPNWIDTH, wx.wxEVT_COMMAND_SPINCTRL_UPDATED,
   function(event)
     gfx.widthmul = spnwidth:GetValue()/10
-    trackview:Refresh()
+    trackview.canvas:Refresh()
   end)
   
   tools:Connect(ID_SLIDER, wx.wxEVT_COMMAND_SLIDER_UPDATED,

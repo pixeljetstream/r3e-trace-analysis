@@ -12,7 +12,7 @@ in Interpolant {
 } IN;
 
 void main() {
-  vec4  temp = texture(texHeatMap, IN.data) * color;
+  vec4  temp = texture(texHeatMap, IN.data);
   float periodic = fract(IN.time * timecontrol.x + timecontrol.y);
   float width = timecontrol.z;
   float start = 0.5 - width * 0.5;
@@ -29,6 +29,8 @@ void main() {
   
   temp.xyz *= mix(vec3(1),temp.xyz+0.3, boost*(1-timecontrol.w));
   temp.w   *= max(fade, timecontrol.w);
+  
+  temp.xyz  = mix(temp.xyz, color.xyz, color.w);
   
   out_Color = temp;
 }
