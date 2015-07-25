@@ -33,7 +33,7 @@ Use the selectors (A,B,C,D) to compare different values or laps. A selector chan
 cause any redraw, only selecting a lap or property will. With the "Animated driving line" feature 
 you can improve the perception of the stippled driving lines.
 
-![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_compare.png)
+![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_animated.gif)
 
 When double-clicking a single property it is printed in the track view. The current "Gradient" setting is applied, see explanation further down. It allows to visualize up- or down shifts for example.
 
