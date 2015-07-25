@@ -634,12 +634,21 @@ do
     
     local numPlots = 0
     local numRacelines = 0
+    local numData = 0
     local plots = {}
     
+    -- racelines first
     for i=1,MAX_PLOTS do
-      if (gfx.enabled[i] and gfx.plots[i].trace) then 
+      if (gfx.enabled[i] and gfx.plots[i].trace and gfx.plots[i].minmax == nil) then 
         plots[numPlots+1] = gfx.plots[i]
-        numRacelines = numRacelines + (gfx.plots[i].minmax == nil and 1 or 0)
+        numRacelines = numRacelines + 1
+        numPlots = numPlots + 1
+      end
+    end
+    for i=1,MAX_PLOTS do
+      if (gfx.enabled[i] and gfx.plots[i].trace and gfx.plots[i].minmax ) then 
+        plots[numPlots+1] = gfx.plots[i]
+        numData  = numData + 1
         numPlots = numPlots + 1
       end
     end
@@ -650,19 +659,23 @@ do
     for i=1,numPlots do
       local a = plots[i]
       minmaxs[i] = minmaxs[i] or a.minmax
+      
+      
       -- compare with others
       for n=i+1,numPlots do
         local b = plots[n]
+        local function checkMatch(what)
+          return (a.prop.name:match(what) ~= nil) and (b.prop.name:match(what) ~= nil)
+        end
         
         if (a.minmax and b.minmax and 
             a.prop and b.prop and
             a.gradient == b.gradient and
-          (
-            (a.prop.name == b.prop.name) or
-            (a.prop.name:match("Temp") ~= nil) == (b.prop.name:match("Temp") ~= nil) or 
-            (a.prop.name:match("Pressure") ~= nil) == (b.prop.name:match("Pressure") ~= nil) or
-            (a.prop.name:match("Time") ~= nil) == (b.prop.name:match("Time") ~= nil) or
-            (a.prop.name:match("Pedal") ~= nil) == (b.prop.name:match("Pedal") ~= nil)
+          ( a.prop.name == b.prop.name  or
+            checkMatch("Temp") or 
+            checkMatch("Pressure") or 
+            checkMatch("Time") or 
+            checkMatch("Pedal")
           ))
         then
           local merged = {math.min(a.minmax[1],b.minmax[1]), math.max(a.minmax[2],b.minmax[2])}
@@ -672,6 +685,7 @@ do
       end
     end
     
+    local curData     = 0
     local curRaceline = 0
     for i=1,numPlots do
       local plot = plots[i]
@@ -690,7 +704,7 @@ do
         -- [0,range]
         m4.mulA( dataTM, m4.scaled( m4.tab(), 1/range,1,1 ))
       end
-      if (isline) then
+      if (isline ) then
         local offset = numRacelines > 1 and ((curRaceline)/(numRacelines-1))*1.5-0.75 or -0.5
         m4.mulA( dataTM, m4.translated( m4.tab(), offset,0,0 ) )
       end
@@ -707,22 +721,22 @@ do
       gl.glUniformMatrix4fv( unisTrack.viewProjTM, 1, gl.GL_FALSE, viewProjTM )
       gl.glUniformMatrix4fv( unisTrack.dataTM, 1, gl.GL_FALSE, dataTM)
       
-      gl.glUniform4f(unisTrack.color, 1,1,1,0)
-      
       if (isline) then
         gl.glUniform1f(unisTrack.shift, 0)
-        gl.glUniform1f(unisTrack.width, 6 * gfx.widthmul)
+        gl.glUniform1f(unisTrack.width, (numData > 0 and numRacelines == 1 and 8 or 6) * gfx.widthmul)
+        gl.glUniform4f(unisTrack.color, 0.55,0.55,0.55, numData > 0 and numRacelines == 1 and 1 or 0)
       else
-        local width     = numPlots > 1 and 12/numPlots or 10
-        local shift     = numPlots > 1 and width*2.5 or 0
-        local shiftbase = numPlots > 1 and -((numPlots-1)*shift + width*2)*0.5+width or 0
-        gl.glUniform1f(unisTrack.shift, shift * (i-1) + shiftbase)
-        gl.glUniform1f(unisTrack.width, width * gfx.widthmul)
+        local width     =(numData > 1 and 8/numData or 6) * gfx.widthmul
+        local shift     = numData > 1 and width*2.5 or 0
+        local shiftbase = numData > 1 and -((numData-1)*shift + width*2)*0.5+width or 0
+        gl.glUniform1f(unisTrack.shift, shift * (curData) + shiftbase)
+        gl.glUniform1f(unisTrack.width, width)
+        gl.glUniform4f(unisTrack.color, 1,1,1,0)
       end
       
       if (isline) then
         local width = 0.7 --1/numRacelines
-        local start = i*0.5 - (os.clock() % 1)
+        local start = i*0.5 - (os.clock()*2 % 1)
         gl.glUniform4f(unisTrack.timecontrol, 1, start, width, 0)
       else
         gl.glUniform4f(unisTrack.timecontrol, 1,1,1,1)
@@ -742,6 +756,8 @@ do
       
       if (isline) then
         curRaceline = curRaceline + 1
+      else
+        curData = curData + 1
       end
     end
     
