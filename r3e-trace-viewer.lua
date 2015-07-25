@@ -586,7 +586,7 @@ do
     
     gl.glNamedBufferSubDataEXT(plot.bufdata, 0, 4*samples, outputs[1])
     
-    plot.info = plot.prop.name..string.format(" [ %.2f, %2.f ] ", plot.minmax[1],plot.minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
+    plot.info = plot.prop.name..string.format(" [ %.2f, %.2f ] ", plot.minmax[1],plot.minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
     return plot.info
   end
   
@@ -695,8 +695,9 @@ do
       local isline = plot.minmax == nil
 
       local minmax = minmaxs[i] or {-1,1}
+      local negative = minmax[1] < -0.0001
       local range = math.max(minmax[2],math.abs(minmax[1]))
-      if (plot.gradient) then
+      if (plot.gradient or negative) then
         -- [-range,range]
         m4.mulA( dataTM, m4.scaled( m4.tab(), 1/(range*2),1,1 ))
         m4.mulA( dataTM, m4.translated( m4.tab(), range,0,0 ) )
