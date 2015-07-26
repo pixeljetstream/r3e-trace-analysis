@@ -44,7 +44,7 @@ by the duration the fastest plot took. For example in this image you can see we 
 
 ![track_range](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_range.png)
 
-However when start our analysis after the troubled section we an see that both laps ended up pretty similar in duration.
+However when starting our analysis after the troubled section we can see that both laps ended up pretty similar in duration.
 
 ![track_range_detail](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_range_detail.png)
 
