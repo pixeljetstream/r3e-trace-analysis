@@ -317,6 +317,16 @@ function _M.v3dot(a,b)
   return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
 end
 
+function _M.v3distance(a,b)
+  vec = _M.v3tab()
+  _M.v3sub(vec,a,b)
+  return math.sqrt(vec[0]*vec[0] + vec[1]*vec[1] + vec[2]*vec[2])
+end
+
+function _M.v3length(vec)
+  return math.sqrt(vec[0]*vec[0] + vec[1]*vec[1] + vec[2]*vec[2])
+end
+
 function _M.v3cross(out,a,b)
   out[0] = a[1] * b[2] - a[2] * b[1];
   out[1] = a[2] * b[0] - a[0] * b[2];

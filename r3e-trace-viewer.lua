@@ -175,11 +175,12 @@ local events = {
   time = {},
   open = {},
   lap = {},
+  range = {},
 }
 
-local function triggerEvent(tab, trace, lap, time, state)
+local function triggerEvent(tab, ...)
   for i,v in ipairs(tab) do
-    v(trace,lap,frame,state)
+    v(...)
   end
 end
 
@@ -266,6 +267,7 @@ local function initLapView(frame)
   end
 
   local function open(trace) 
+    lastLap = nil
     control:ClearAll()
     control:InsertColumn(0, "Lap")
     control:InsertColumn(1, "Time")
@@ -331,6 +333,8 @@ local function initPropertyView(frame)
       if type(v) == "table" then
         local v3length = math.sqrt(v[1]*v[1] + v[2]*v[2] + v[3]*v[3])
         txt = string.format("{%.3f, %.3f, %.3f}  %.3f",v[1],v[2],v[3],v3length)
+      elseif( props[i].name:match("Speed")) then
+        txt = string.format("%.3f | %.3f", v, v * 3.6)
       else
         txt = tostring(v)
       end
@@ -526,6 +530,68 @@ do
     
   end
   registerHandler(events.open, gfx.openUpdate)
+  
+  local function clearRange(plot)
+    plot.rangeBegin = nil
+    plot.rangeEnd   = nil
+    plot.rangeTimeBegin = nil
+    plot.rangeTimeDuration = nil
+  end
+  
+  local function updateRange(plot)
+    if (gfx.rangeState == nil or not plot.pos) then 
+      clearRange(plot)
+      return
+    end
+    
+    local function findClosest(begin, marker)
+      local lastdist = 10000000000
+      local idx = 0
+      
+      for i=begin,plot.samples-1 do
+        local pos = plot.pos + i * 3
+        local dist = v3.distance(pos,marker)
+        if (dist < lastdist) then
+          lastdist = dist
+          idx  = i
+        elseif (lastdist < 5) then
+          return idx
+        end
+      end
+      
+      return idx
+    end
+    
+    if (not plot.rangeBegin) then
+      plot.rangeBegin = findClosest(0, gfx.rangeBegin)
+      plot.rangeTimeBegin = plot.times[plot.rangeBegin]
+      plot.rangeTimeDuration  = plot.times[plot.samples-1] - plot.rangeTimeBegin
+    end
+    if(gfx.rangeState == false) then
+      plot.rangeEnd   = findClosest(plot.rangeBegin, gfx.rangeEnd)
+      plot.rangeTimeDuration  = plot.times[plot.rangeEnd] - plot.rangeTimeBegin
+    end
+  end
+  
+  function gfx.rangeUpdate(rangeState)
+    gfx.rangeState = rangeState
+    if (rangeState == nil) then
+      -- clear
+      gfx.rangeBegin = nil
+      gfx.rangeEnd   = nil
+    elseif (rangeState) then
+      -- begin
+      gfx.rangeBegin = gfx.pos
+    else
+      -- end
+      gfx.rangeEnd   = gfx.pos
+    end
+    for i=1,MAX_PLOTS do
+      updateRange(gfx.plots[i])
+    end
+  end
+  
+  registerHandler(events.range, gfx.rangeUpdate)
 
   function gfx.lapUpdate(trace, lap)
     local plot = gfx.plot
@@ -538,6 +604,7 @@ do
     plot.minmax  = nil
     plot.gradient= true
     plot.info    = "Driving line"
+    clearRange(plot)
     
     local pos    = ffi.new("float[?]", samples*3)
     local times  = ffi.new("float[?]", samples)
@@ -553,11 +620,16 @@ do
     
     gl.glNamedBufferDataEXT( plot.bufdata, 4*samples, data, gl.GL_STATIC_DRAW)
     gl.glTextureBufferEXT( plot.texdata, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.bufdata )
+    
+    plot.pos   = pos
+    plot.times = times
+    
+    updateRange(plot)
   end
   registerHandler(events.lap, gfx.lapUpdate)
   
   function gfx.timeUpdate(trace, lap, time, state)
-    gfx.pos = {state.Player.Position.X,state.Player.Position.Z,state.Player.Position.Y}
+    gfx.pos = v3.float(state.Player.Position.X,state.Player.Position.Z,state.Player.Position.Y)
   end
   registerHandler(events.time, gfx.timeUpdate)
 
@@ -591,8 +663,6 @@ do
   end
   
   function gfx.drawTrack(w,h,zoom,pan)
-    local stride = 1
-    
     -- swap y,z
     local range = { gfx.trace.posMax[1]-gfx.trace.posMin[1],
                     gfx.trace.posMax[3]-gfx.trace.posMin[3],
@@ -637,12 +707,16 @@ do
     local numData = 0
     local plots = {}
     
+    local minRangeDuration = 1000000
+    
     -- racelines first
     for i=1,MAX_PLOTS do
       if (gfx.enabled[i] and gfx.plots[i].trace and gfx.plots[i].minmax == nil) then 
         plots[numPlots+1] = gfx.plots[i]
         numRacelines = numRacelines + 1
         numPlots = numPlots + 1
+        
+        minRangeDuration = math.min(minRangeDuration, gfx.plots[i].rangeTimeDuration or minRangeDuration)
       end
     end
     for i=1,MAX_PLOTS do
@@ -650,9 +724,12 @@ do
         plots[numPlots+1] = gfx.plots[i]
         numData  = numData + 1
         numPlots = numPlots + 1
+        
+        minRangeDuration = math.min(minRangeDuration, gfx.plots[i].rangeTimeDuration or minRangeDuration)
       end
     end
     
+   
     local minmaxs = {}
     -- things that are in same coordinate space, should use merged
     -- minmax for graph to be comparable
@@ -710,8 +787,6 @@ do
         m4.mulA( dataTM, m4.translated( m4.tab(), offset,0,0 ) )
       end
       
-      local numPoints = math.floor(plot.samples/stride)
-      
       gl.glUseProgram(progTrack)
       
       gl.glBindMultiTextureEXT(gl.GL_TEXTURE0, gl.GL_TEXTURE_BUFFER, plot.texpos)
@@ -738,14 +813,22 @@ do
       if (isline) then
         local width = 0.7 --1/numRacelines
         local start = i*0.5 - (os.clock()*2 % 1)
-        gl.glUniform4f(unisTrack.timecontrol, 1, start, width, 0)
+        gl.glUniform4f(unisTrack.timestipple, 1, start, width, 1)
       else
-        gl.glUniform4f(unisTrack.timecontrol, 1,1,1,1)
+        gl.glUniform4f(unisTrack.timestipple, 1,1,1,0)
       end
       
-      gl.glUniform1i(unisTrack.numPoints, numPoints)
+      local timeBegin = plot.rangeTimeBegin or -1
+      gl.glUniform2f(unisTrack.timeclamp, -1, timeBegin + minRangeDuration)
       
-      gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, numPoints * 2)
+      local numPoints = plot.samples
+      gl.glUniform1i(unisTrack.numPoints, plot.samples)
+      
+      local vertexBegin     = plot.rangeBegin and plot.rangeBegin*2 or 0
+      local vertexEnd       = plot.rangeEnd   and plot.rangeEnd*2   or numPoints*2
+      local numVertices     = vertexEnd - vertexBegin
+      
+      gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, vertexBegin, numVertices)
       
       gl.glDisableVertexAttribArray(0)
       gl.glDisableVertexAttribArray(1)
@@ -787,7 +870,7 @@ do
       gl.glUniform4f(unisBasic.color, 0,0,0,1)
       gl.glPointSize(16)
       gl.glBegin(gl.GL_POINTS)
-      gl.glVertexAttrib3f(0, gfx.pos[1], gfx.pos[2], gfx.pos[3])
+      gl.glVertexAttrib3f(0, gfx.pos[0], gfx.pos[1], gfx.pos[2])
       gl.glEnd()
       
       gl.glDisable(gl.GL_POINT_SMOOTH)
@@ -970,9 +1053,13 @@ local function initApp()
   
   frame.tool = tools
   
+  local ID_BTNRANGE = NewID()
+  
   local lbltime = wx.wxStaticText(toolsTime, wx.wxID_ANY, "Time:", wx.wxDefaultPosition, wx.wxSize(30,24), wx.wxALIGN_RIGHT)
   local txttime = wx.wxTextCtrl(toolsTime, ID_TXTTIME, "0", wx.wxDefaultPosition, wx.wxSize(78,24), wx.wxTE_READONLY)
+  local btnrange = wx.wxButton(toolsTime, ID_BTNRANGE, "Range Begin",wx.wxDefaultPosition, wx.wxSize(80,24))
   local slider  = wx.wxSlider(toolsTime, ID_SLIDER, 0, 0, SLIDER_RES, wx.wxDefaultPosition, wx.wxSize(80,24))
+  
   
   -- wx.wxArtProvider.GetBitmap(wx.wxART_REPORT_VIEW, wx.wxART_MENU, wx.wxSize(16,16))
   local btnexport = wx.wxButton( toolsAction, ID_BTNEXPORT, "Export Sel. Props",wx.wxDefaultPosition, wx.wxSize(116,24))
@@ -1015,10 +1102,12 @@ local function initApp()
   frame.radios  = radios
   frame.checks  = checks
   frame.chkanim = chkanim
+  frame.btnrange = btnrange
   
   local sizer = wx.wxBoxSizer(wx.wxHORIZONTAL)
   sizer:Add(lbltime, 0, wx.wxALL,4)
   sizer:Add(txttime, 0, wx.wxALL)
+  sizer:Add(btnrange,  0, wx.wxALL)
   sizer:Add(slider, 1, wx.wxEXPAND)
   toolsTime:SetSizer(sizer)
   
@@ -1111,6 +1200,36 @@ local function initApp()
     gfx.widthmul = spnwidth:GetValue()/10
     trackview.canvas:Refresh()
   end)
+
+  local rangeState = nil
+  local function updateRangeText()
+    btnrange:SetLabel(rangeState == true and "Range End" or 
+                      rangeState == false and "Range Clear" or
+                      "Range Begin")
+  end
+  
+  tools:Connect(ID_BTNRANGE, wx.wxEVT_COMMAND_BUTTON_CLICKED,
+    function(event)
+      if (rangeState == nil) then
+        rangeState = true
+        triggerEvent(events.range, rangeState)
+      elseif (rangeState) then
+        rangeState = false
+        triggerEvent(events.range, rangeState)
+      else
+        rangeState = nil
+        triggerEvent(events.range, rangeState)
+      end
+      updateRangeText()
+      trackview.canvas:Refresh()
+    end)
+  
+  registerHandler(events.open, 
+    function() 
+      rangeState = nil
+      updateRangeText()
+      triggerEvent(events.range, rangeState)
+    end)
   
   tools:Connect(ID_SLIDER, wx.wxEVT_COMMAND_SLIDER_UPDATED,
   function (event)
