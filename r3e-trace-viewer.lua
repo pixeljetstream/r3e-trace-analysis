@@ -21,7 +21,11 @@ local SLIDER_RES = 2048
 local AVG_RES    = 2048
 local MAX_PLOTS  = 4
 
-GLOBALS = {}
+local app
+local function reportStatus(text)
+  app:SetStatusText(text)
+end
+
 ---------------------------------------------
 
 local function addTables(tab,n)
@@ -43,7 +47,7 @@ local function getNumSamples(trace, lap)
 end
 
 local function getSampledData(trace, lap, numSamples, times, pos, gradient, selected, outputs)
-  local state = ffi.new( r3e.SHARED_TYPE )
+  local state     = ffi.new( r3e.SHARED_TYPE )
   local statePrev = ffi.new( r3e.SHARED_TYPE )
   local stateNext = ffi.new( r3e.SHARED_TYPE )
   
@@ -156,26 +160,30 @@ local function saveCSV(trace, lap, selected, gradient, filename)
   f:close()
 end
 
----------------------------------------------
-local traceFileName = args[2] or args[1]==nil and "trace_150712_170141.r3t"
-local trace
-local traceLapData
-local traceLap   = 1
-local traceTime  = 0
-local traceState = ffi.new( r3e.SHARED_TYPE )
-
-local app
-local function reportStatus(text)
-  app:SetStatusText(text)
+local function getTraceShortName(trace)
+  return trace.filename:match("([^/\\]+)$")
 end
+
 
 ---------------------------------------------
 
 local events = {
   time = {},
   open = {},
+  append = {},
   lap = {},
   range = {},
+  property = {},
+}
+
+---------------------------------------------
+local active = {
+  filename = nil,
+  lap = 0,
+  time = 0,
+  state = ffi.new( r3e.SHARED_TYPE ),
+  lapData = nil,
+  trace = nil,
 }
 
 local function triggerEvent(tab, ...)
@@ -184,31 +192,50 @@ local function triggerEvent(tab, ...)
   end
 end
 
-local function traceSetTime(time)
-  traceTime = frame
-  trace:getFrame( traceState, time )
-  triggerEvent(events.time, trace, traceLap, time, traceState)
+local function traceSetTime( time )
+  active.time = time
+  active.trace:getFrame( active.state, time )
+  triggerEvent(events.time, active.trace, active.lap, time, active.state)
 end
 
 
-local function traceSetLap(lap)
-  traceLapData = trace.lapData[lap] 
-  traceLap = lap
+local function traceSetLap(trace, lap)
+  active.trace   = trace
+  active.lapData = trace.lapData[lap] 
+  active.lap      = lap
   triggerEvent(events.lap, trace, lap, nil, nil)
-  traceSetTime(traceLapData.timeBegin)
+  traceSetTime(active.lapData.timeBegin)
 end
 
-local function traceSetFile(fileName)
+local function traceSetProperty(selected, gradient)
+  triggerEvent(events.property, active.trace, active.lap, selected, gradient)
+end
+
+local function traceSaveCSV(selected, gradient, filename)
+  saveCSV(active.trace, active.lap, selected, gradient, filename)
+end
+
+local function traceOpenFile(fileName)
   if not fileName then return end
   
-  trace = r3etrace.loadTrace(fileName)
+  local trace = r3etrace.loadTrace(fileName)
   
   if (trace) then
     app:SetTitle(APP_NAME.." - "..fileName)
     triggerEvent(events.open, trace, nil, nil, nil)
-    traceSetLap(1)
+    traceSetLap(trace, 1)
   else
     reportStatus("load failed")
+  end
+end
+
+local function traceAppendFile(fileName)
+  if not fileName then return end
+  
+  local trace = r3etrace.loadTrace(fileName)
+  if (trace) then
+    app:SetTitle(APP_NAME.." - "..fileName)
+    triggerEvent(events.append, trace, nil, nil, nil)
   end
 end
 
@@ -239,7 +266,7 @@ local ID_EXPRESSION = NewID()
 local function toMS(seconds)
   local m = math.floor(seconds/60)
   local s = seconds-m*60
-  return string.format("%d:%.4f", m,s)
+  return string.format("%d : %.3f", m,s)
 end
 
 local function initLapView(frame)
@@ -249,38 +276,68 @@ local function initLapView(frame)
                             wx.wxDefaultPosition, wx.wxSize(110, 300),
                             wx.wxLC_REPORT + wx.wxLC_SINGLE_SEL)
   
-  local default = control:GetTextColour()
-  local sel     = wx.wxColour(205,100,0)
-  
-  local function lapString( i, sel )
+  local function lapString( trace, i, sel )
     local str = trace.lapData[i].valid and tostring(i) or "("..tostring(i)..")"
-    return sel and ""..str.." |||" or str
+    return sel and ""..str.." ||" or str
   end
   
+  local content = {}
+  local lktrace = {}
+  
+  local lastTrace
   local lastLap
+  local lastIdx
   local function lap(trace, lap)
+    local idx = lktrace[trace] + lap - 1
+    
     if (lastLap) then
-      control:SetItem(lastLap-1, 0, lapString(lastLap,false))
+      control:SetItem(lastIdx, 0, lapString(lastTrace,lastLap,false))
     end
-    control:SetItem(lap-1, 0, lapString(lap,true))
+    control:SetItem(idx, 0, lapString(trace,lap,true))
+    
+    lastTrace = trace
     lastLap = lap
+    lastIdx = idx
+  end
+  
+  local function append(trace)
+    local offset = #content
+    lktrace[trace] = offset
+    
+    for i,v in ipairs(trace.lapData) do
+      local idx = offset + i - 1
+      
+      control:InsertItem(idx, lapString(trace, i))
+      control:SetItem(idx, 1, toMS(v.time))
+      control:SetItem(idx, 2, getTraceShortName(trace))
+      
+      content[idx] = {trace, i}
+    end
   end
 
   local function open(trace) 
     lastLap = nil
+    content = {}
+    lktrace = {}
     control:ClearAll()
     control:InsertColumn(0, "Lap")
     control:InsertColumn(1, "Time")
-    control:SetColumnWidth(0,40)
+    control:InsertColumn(2, "File")
+    control:SetColumnWidth(0,36)
     control:SetColumnWidth(1,60)
-    for i,v in ipairs(trace.lapData) do
-      control:InsertItem(i-1, lapString(i, i==1))
-      control:SetItem(i-1, 1, toMS(v.time))
-    end
+    control:SetColumnWidth(2,200)
+    
+    append(trace)
+  end
+  
+  function control.getFromIdx(idx)
+    local trace, lap = content[idx][1],content[idx][2]
+    return trace,lap
   end
   
   registerHandler(events.lap, lap)
   registerHandler(events.open, open)
+  registerHandler(events.append, append)
   
   return control
 end
@@ -509,14 +566,13 @@ do
       
       unisBasic = glu.programuniforms(progBasic)
     end
-    table.insert(GLOBALS,context)
+
     return context
   end
   
-  function gfx.openUpdate(trace)
-    -- find first valid lap
-    gfx.samplesAvg = nil
-    gfx.trace    = trace
+  local function appendUpdate(trace)
+    if (gfx.samplesAvg) then return end
+    
     for i,v in ipairs(trace.lapData) do
       if (v.valid) then
         local pos  = ffi.new("float[?]", AVG_RES*3)
@@ -527,9 +583,16 @@ do
         break
       end
     end
-    
   end
-  registerHandler(events.open, gfx.openUpdate)
+  
+  local function openUpdate(trace)
+    -- find first valid lap
+    gfx.samplesAvg = nil
+    gfx.trace    = trace
+    appendUpdate(trace)
+  end
+  registerHandler(events.open, openUpdate)
+  registerHandler(events.append, appendUpdate)
   
   local function clearRange(plot)
     plot.rangeBegin = nil
@@ -573,7 +636,7 @@ do
     end
   end
   
-  function gfx.rangeUpdate(rangeState)
+  local function rangeUpdate(rangeState)
     gfx.rangeState = rangeState
     if (rangeState == nil) then
       -- clear
@@ -591,9 +654,9 @@ do
     end
   end
   
-  registerHandler(events.range, gfx.rangeUpdate)
+  registerHandler(events.range, rangeUpdate)
 
-  function gfx.lapUpdate(trace, lap)
+  local function lapUpdate(trace, lap)
     local plot = gfx.plot
     local samples = getNumSamples(trace, lap)
     
@@ -626,14 +689,14 @@ do
     
     updateRange(plot)
   end
-  registerHandler(events.lap, gfx.lapUpdate)
+  registerHandler(events.lap, lapUpdate)
   
-  function gfx.timeUpdate(trace, lap, time, state)
+  local function timeUpdate(trace, lap, time, state)
     gfx.pos = v3.float(state.Player.Position.X,state.Player.Position.Z,state.Player.Position.Y)
   end
-  registerHandler(events.time, gfx.timeUpdate)
+  registerHandler(events.time, timeUpdate)
 
-  function gfx.propertyUpdate(trace, lap, selected, gradient)
+  function propertyUpdate(trace, lap, selected, gradient)
     local plot = gfx.plot
     
     if (getNumSelected(selected)==0) then
@@ -641,7 +704,7 @@ do
     end
     
     if (plot.trace ~= trace or plot.lap ~= lap) then
-      gfx.lapUpdate(trace,lap)
+      lapUpdate(trace,lap)
     end
     
     local samples = plot.samples
@@ -661,6 +724,8 @@ do
     plot.info = plot.prop.name..string.format(" [ %.2f, %.2f ] ", plot.minmax[1],plot.minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
     return plot.info
   end
+  
+  registerHandler(events.property, propertyUpdate)
   
   function gfx.drawTrack(w,h,zoom,pan)
     -- swap y,z
@@ -802,8 +867,8 @@ do
         gl.glUniform1f(unisTrack.width, (numData > 0 and numRacelines == 1 and 8 or 6) * gfx.widthmul)
         gl.glUniform4f(unisTrack.color, 0.55,0.55,0.55, numData > 0 and numRacelines == 1 and 1 or 0)
       else
-        local width     =(numData > 1 and 8/numData or 6) * gfx.widthmul
-        local shift     = numData > 1 and width*2.5 or 0
+        local width     =(numData > 2 and 4 or 6) * gfx.widthmul
+        local shift     = numData > 1 and width*2.1 or 0
         local shiftbase = numData > 1 and -((numData-1)*shift + width*2)*0.5+width or 0
         gl.glUniform1f(unisTrack.shift, shift * (curData) + shiftbase)
         gl.glUniform1f(unisTrack.width, width)
@@ -817,6 +882,9 @@ do
       else
         gl.glUniform4f(unisTrack.timestipple, 1,1,1,0)
       end
+      
+      gl.glUniform2f(unisTrack.sidecontrol, numData > 2 and 1/(numData-2) or 0.75, 
+                                            numData > 1 and 1/(numData-1) or 0)
       
       local timeBegin = plot.rangeTimeBegin or -1
       gl.glUniform2f(unisTrack.timeclamp, -1, timeBegin + minRangeDuration)
@@ -848,31 +916,37 @@ do
     if (gfx.samplesAvg) then
       
       local samples = gfx.samplesAvg
-      local buf     = bufavg
+      local buffer  = bufavg
       
-      gl.glEnable(gl.GL_POINT_SMOOTH)
-    
       gl.glUseProgram(progBasic)
       gl.glUniformMatrix4fv( unisBasic.viewProjTM, 1, gl.GL_FALSE, viewProjTM)
-    
-      local clr = 0.3
-      gl.glUniform4f(unisBasic.color, clr,clr,clr,1)
       
-      gl.glLineWidth(1.5)
-      gl.glBindBuffer(gl.GL_ARRAY_BUFFER, buf)
+      --gl.glLineStipple(1, 0x5555)
+      --gl.glLineStipple(1, 0x0F0F)
+      gl.glLineStipple(1, 0x00FF)
+      gl.glEnable(gl.GL_LINE_STIPPLE)
+      
+      gl.glBindBuffer(gl.GL_ARRAY_BUFFER, buffer)
       gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 4*3, nil)
       gl.glEnableVertexAttribArray(0)
       
+      gl.glLineWidth(2)
+      gl.glUniform4f(unisBasic.color, 1, 1, 1, 1)
+      gl.glDrawArrays(gl.GL_LINE_STRIP, 0, samples)
+      
+      gl.glLineWidth(1.5)
+      gl.glUniform4f(unisBasic.color, 0.2, 0.2, 0.2,1)
       gl.glDrawArrays(gl.GL_LINE_STRIP, 0, samples)
       
       gl.glDisableVertexAttribArray(0)
+      gl.glDisable(gl.GL_LINE_STIPPLE)
       
+      gl.glEnable(gl.GL_POINT_SMOOTH)
       gl.glUniform4f(unisBasic.color, 0,0,0,1)
       gl.glPointSize(16)
       gl.glBegin(gl.GL_POINTS)
       gl.glVertexAttrib3f(0, gfx.pos[0], gfx.pos[1], gfx.pos[2])
       gl.glEnd()
-      
       gl.glDisable(gl.GL_POINT_SMOOTH)
     end
   end
@@ -958,7 +1032,7 @@ local function initTrackView(frame)
     for i=1,MAX_PLOTS do
       if (gfx.enabled[i] and gfx.plots[i].trace) then
         local plot = gfx.plots[i]
-        txt = txt..(first and "" or "\n").." Lap "..plot.lap.." "..plot.info
+        txt = txt..(first and "" or "\n").." Lap "..plot.lap.." "..plot.info.." - "..getTraceShortName(plot.trace)
         first = false
         num = num + 1
       end
@@ -986,10 +1060,13 @@ local function initApp()
   local ID_TIMER = NewID()
   local timer = wx.wxTimer(frame, ID_TIMER)
   frame.timer = timer
+  
+  local ID_MENUAPPEND = NewID()
 
   -- create a simple file menu
   local fileMenu = wx.wxMenu()
   fileMenu:Append(wx.wxID_OPEN, "&Open", "Open Trace file")
+  fileMenu:Append(ID_MENUAPPEND,"&Append", "Append Trace file")
   fileMenu:Append(wx.wxID_EXIT, "E&xit", "Quit the program")
 
   -- create a simple help menu
@@ -1029,7 +1106,19 @@ local function initApp()
                                           wx.wxFD_OPEN + wx.wxFD_FILE_MUST_EXIST)
 
       if fileDialog:ShowModal() == wx.wxID_OK then
-        traceSetFile(fileDialog:GetPath())
+        traceOpenFile(fileDialog:GetPath())
+      end
+      fileDialog:Destroy()
+    end )
+  
+  -- open file dialog
+  frame:Connect(ID_MENUAPPEND, wx.wxEVT_COMMAND_MENU_SELECTED,
+    function (event) 
+      local fileDialog = wx.wxFileDialog( frame, "Append file", "", "","R3E trace files (*.r3t)|*.r3t",
+                                          wx.wxFD_OPEN + wx.wxFD_FILE_MUST_EXIST)
+
+      if fileDialog:ShowModal() == wx.wxID_OK then
+        traceAppendFile(fileDialog:GetPath())
       end
       fileDialog:Destroy()
     end )
@@ -1139,21 +1228,21 @@ local function initApp()
   frame:SetSizer(sizer)
   
   -- add lap sidebar
-  local lap = initLapView(lapSplitter)
-  frame.lap = lap
+  local lapview = initLapView(lapSplitter)
+  frame.lapview = lapview
   
   -- add property
   local propSplitter = wx.wxSplitterWindow( lapSplitter, wx.wxID_ANY )
   frame.propSplitter = propSplitter
   
-  local props = initPropertyView(propSplitter)
-  frame.props = props
+  local propview = initPropertyView(propSplitter)
+  frame.propview = propview
   
   local trackview = initTrackView(propSplitter)
   frame.trackview = trackview
   
-  lapSplitter:SplitVertically(lap,propSplitter)
-  propSplitter:SplitVertically(props,trackview)
+  lapSplitter:SplitVertically(lapview,propSplitter)
+  propSplitter:SplitVertically(propview,trackview)
   
  
   ----------
@@ -1178,10 +1267,12 @@ local function initApp()
   
   frame:Connect(ID_LAP, wx.wxEVT_COMMAND_LIST_ITEM_ACTIVATED,
   function (event)
-    if (not trace) then return end
-
+    if (not active.trace) then return end
+    
     setVisible(gfx.plot.idx, true)
-    traceSetLap( event:GetIndex()+1)
+    
+    local trace,lap = lapview.getFromIdx(event:GetIndex())
+    traceSetLap( trace, lap)
   end)
 
   tools:Connect(ID_CHKANIM, wx.wxEVT_COMMAND_CHECKBOX_CLICKED,
@@ -1194,7 +1285,7 @@ local function initApp()
         timer:Stop()
       end
     end)
-
+  
   tools:Connect(ID_SPNWIDTH, wx.wxEVT_COMMAND_SPINCTRL_UPDATED,
   function(event)
     gfx.widthmul = spnwidth:GetValue()/10
@@ -1233,11 +1324,11 @@ local function initApp()
   
   tools:Connect(ID_SLIDER, wx.wxEVT_COMMAND_SLIDER_UPDATED,
   function (event)
-    if (not traceLapData) then return end
+    if (not active.lapData) then return end
     
     local fracc = event:GetInt()/(SLIDER_RES-1)
-    local laptime = traceLapData.time * fracc
-    local time = traceLapData.timeBegin + laptime
+    local laptime = active.lapData.time * fracc
+    local time = active.lapData.timeBegin + laptime
     
     traceSetTime(time)
     txttime:ChangeValue(toMS(laptime))
@@ -1258,19 +1349,19 @@ local function initApp()
       end)
   end
 
-  props:Connect(ID_PROPERTY, wx.wxEVT_COMMAND_LIST_ITEM_ACTIVATED,
+  propview:Connect(ID_PROPERTY, wx.wxEVT_COMMAND_LIST_ITEM_ACTIVATED,
     function (event)
       local active = gfx.plot.idx
       
       setVisible(active, true)
       
-      gfx.propertyUpdate(trace, traceLap, props.getSelected(1), spngrad:GetValue())
+      traceSetProperty(propview.getSelected(1), spngrad:GetValue())
       trackview.changed()
     end)
 
   tools:Connect(ID_BTNPLOT, wx.wxEVT_COMMAND_BUTTON_CLICKED,
     function (event)
-      local selected = props.getSelected(4)
+      local selected = propview.getSelected(4)
       local num = getNumSelected(selected)
       local active = gfx.plot.idx
       
@@ -1280,7 +1371,7 @@ local function initApp()
       
       if (num == 1) then
         setVisible(active, true)
-        gfx.propertyUpdate(trace, traceLap, selected, spngrad:GetValue())
+        traceSetProperty(selected, spngrad:GetValue())
       elseif( num > 1) then
         for i=1,num do
           local sel = {props={ selected.props[i] }, }
@@ -1289,7 +1380,7 @@ local function initApp()
           gfx.plot = gfx.plots[i]
           setVisible(i, true)
           
-          local res = gfx.propertyUpdate(trace, traceLap, sel, spngrad:GetValue())
+          traceSetProperty(sel, spngrad:GetValue())
         end
         gfx.plot = gfx.plots[active]
         
@@ -1303,7 +1394,7 @@ local function initApp()
                                           wx.wxFD_SAVE)
 
       if fileDialog:ShowModal() == wx.wxID_OK then
-        saveCSV( trace, traceLap, props.getSelected(), spngrad:GetValue(), fileDialog:GetPath() )
+        traceSaveCSV(propview.getSelected(), spngrad:GetValue(), fileDialog:GetPath() )
       end
       fileDialog:Destroy()
     end )
@@ -1311,11 +1402,9 @@ local function initApp()
   return frame
 end
 
-
-
 app = initApp()
 
-traceSetFile(traceFileName)
+traceOpenFile(args[2] or args[1]==nil and "trace_150712_170141.r3t")
 
 -- show the frame window
 app:Show(true)

@@ -48,6 +48,11 @@ However when starting our analysis after the troubled section we can see that bo
 
 ![track_range_detail](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_range_detail.png)
 
+With "File->Append" one can load another set of recorded laps to compare with. However, there is no compatibility check whether the same car or track was used. Below we compare the fastest lap from race
+with lap from qualifying.
+
+![track_multifile](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_multifile.png)
+
 You can select interesting properties and export the current lap's interpolated values using the export button and create diagrams in your favorite chart software. How many sample points are taken is influenced by ```config.viewer.samplerate```.
 
 ![csvexport](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/csvexport.png)
@@ -68,6 +73,9 @@ The default settings are stored in "config.lua". Create "config-user.lua" to ove
 
 ### History
 * 26.07.2015:
+ * Recorder supports saving session on pause (for mid-session files to be appended in viewer)
+ * Support for appending a file
+ * Improved styling of multiple data plots
  * Range option to compare limited sections of the track and their effect on time
 * 25.07.2015:
  * Animated driving line

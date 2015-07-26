@@ -14,6 +14,7 @@ utils.loadInto("config-user.lua", config)
 
 local pollrate = config.record.pollrate or 10
 local onlydriving = config.record.onlydriving == nil or config.record.onlydriving
+local saveonpause = config.record.saveonpause and onlydriving
 
 ----------------------------------
 
@@ -215,7 +216,13 @@ function update()
       local time = onlydriving and state.Player.GameSimulationTime or (os.clock()-timeBegin)
       record(state, stateLast, time)
     else
-      if (not inPause) then print "record paused" end
+      if (not inPause) then 
+        print "record paused" 
+        if (saveonpause) then
+          endSession()
+          inSession = false
+        end
+      end
       inPause = true
     end
   end

@@ -10,6 +10,10 @@ record.pollrate = 10
 -- otherwise based on recording time
 record.onlydriving = true 
 
+-- if onlydriving is active, we save when the game is being paused
+-- useful for analysis while game is running
+record.saveonpause = false
+
 -------------------------------------------
 
 -- time delay in milliseconds

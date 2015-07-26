@@ -13,6 +13,7 @@ layout(binding=2) uniform samplerBuffer texTime;
 out Interpolant {
   float data;
   float time;
+  float side;
 } OUT;
 
 void main() {
@@ -28,13 +29,15 @@ void main() {
   
   pos += normal * shift;
   
-  normal *= float(gl_VertexID % 2)*2 - 1;
+  float side = float(gl_VertexID % 2)*2 - 1;
+  normal *= side;
   pos += normal * width;
     
   
   vec4 data = vec4(texelFetch(texData, idx).r, 0,0,1);
   OUT.data = (dataTM * data).x;
   OUT.time = texelFetch(texTime, idx).r;
+  OUT.side = side;
 
   gl_Position = viewProjTM * vec4(pos,1);
 }
