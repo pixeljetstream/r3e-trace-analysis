@@ -1161,7 +1161,7 @@ local function initApp()
   local lblvis  = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Visible", wx.wxDefaultPosition, wx.wxSize(40,24), wx.wxALIGN_RIGHT)
   
   local spnwidth = wx.wxSpinCtrl(toolsAction, ID_SPNWIDTH, "", wx.wxDefaultPosition, wx.wxSize(60,24),
-    wx.wxSP_ARROW_KEYS, 1, 100, 10)
+    wx.wxSP_ARROW_KEYS + wx.wxTE_PROCESS_ENTER, 1, 100, 10)
   
   local radios = {}
   for i=1,MAX_PLOTS do
@@ -1286,11 +1286,13 @@ local function initApp()
       end
     end)
   
-  tools:Connect(ID_SPNWIDTH, wx.wxEVT_COMMAND_SPINCTRL_UPDATED,
-  function(event)
+  local function spinwidthEvent(event)
     gfx.widthmul = spnwidth:GetValue()/10
     trackview.canvas:Refresh()
-  end)
+  end
+  
+  tools:Connect(ID_SPNWIDTH, wx.wxEVT_COMMAND_TEXT_ENTER, spinwidthEvent)
+  tools:Connect(ID_SPNWIDTH, wx.wxEVT_COMMAND_SPINCTRL_UPDATED, spinwidthEvent)
 
   local rangeState = nil
   local function updateRangeText()
