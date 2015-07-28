@@ -174,6 +174,7 @@ local events = {
   lap = {},
   range = {},
   property = {},
+  compare = {},
 }
 
 ---------------------------------------------
@@ -571,15 +572,22 @@ do
   end
   
   local function appendUpdate(trace)
-    if (gfx.samplesAvg) then return end
+    if (gfx.avg) then return end
     
     for i,v in ipairs(trace.lapData) do
       if (v.valid) then
-        local pos  = ffi.new("float[?]", AVG_RES*3)
-        getSampledData(trace, i, AVG_RES, {}, pos)
+        local samples = getNumSamples(trace, i)
+        local pos     = ffi.new("float[?]", samples*3)
+        local times   = ffi.new("float[?]", samples)
+        getSampledData(trace, i, samples, {}, pos)
         
-        gl.glNamedBufferDataEXT(bufavg, 4*3*AVG_RES, pos, gl.GL_STATIC_DRAW)
-        gfx.samplesAvg = AVG_RES
+        gl.glNamedBufferDataEXT(bufavg, 4*3*samples, pos, gl.GL_STATIC_DRAW)
+        gfx.avg = {
+          samples = samples,
+          pos     = pos,
+          times   = times,
+          bufpos  = bufavg,
+        }
         break
       end
     end
@@ -587,7 +595,7 @@ do
   
   local function openUpdate(trace)
     -- find first valid lap
-    gfx.samplesAvg = nil
+    gfx.avg      = nil
     gfx.trace    = trace
     appendUpdate(trace)
   end
@@ -642,7 +650,7 @@ do
       -- clear
       gfx.rangeBegin = nil
       gfx.rangeEnd   = nil
-    elseif (rangeState) then
+    elseif (rangeState == "begin") then
       -- begin
       gfx.rangeBegin = gfx.pos
     else
@@ -655,6 +663,17 @@ do
   end
   
   registerHandler(events.range, rangeUpdate)
+  
+  local function setupBuffers(plot)
+    gl.glNamedBufferDataEXT( plot.bufpos, 4*3*plot.samples, plot.pos, gl.GL_STATIC_DRAW)
+    gl.glTextureBufferEXT( plot.texpos, gl.GL_TEXTURE_BUFFER, gl.GL_RGB32F, plot.bufpos)
+
+    gl.glNamedBufferDataEXT( plot.buftimes, 4*plot.samples, plot.times, gl.GL_STATIC_DRAW)
+    gl.glTextureBufferEXT( plot.textimes, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.buftimes )
+    
+    gl.glNamedBufferDataEXT( plot.bufdata, 4*plot.samples, plot.data, gl.GL_STATIC_DRAW)
+    gl.glTextureBufferEXT( plot.texdata, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.bufdata )
+  end
 
   local function lapUpdate(trace, lap)
     local plot = gfx.plot
@@ -665,28 +684,28 @@ do
     plot.samples = samples
     plot.lap     = lap
     plot.minmax  = nil
-    plot.gradient= true
-    plot.info    = "Driving line"
+    plot.prop    = nil
+    plot.selected = nil
+    plot.gradient = nil
+    plot.hasGradient = true
+    plot.info    = " Lap "..lap.." Driving line - "..getTraceShortName(trace)
+    
+    plot.data  = ffi.new("float[?]", samples, 0)
+    plot.pos   = ffi.new("float[?]", samples*3)
+    plot.times = ffi.new("float[?]", samples)
+    
+    -- keep original arrays around, as data above might be altered
+    -- by comparisons
+    plot.origsamples = samples
+    plot.origpos  = plot.pos
+    plot.origdata = plot.data
+    plot.origtimes = plot.times
+    
+    getSampledData(trace, lap, samples, plot.times, plot.pos)
+    
+    setupBuffers(plot)
+    
     clearRange(plot)
-    
-    local pos    = ffi.new("float[?]", samples*3)
-    local times  = ffi.new("float[?]", samples)
-    local data   = ffi.new("float[?]", samples,    0)
-    
-    getSampledData(trace, lap, samples, times, pos)
-    
-    gl.glNamedBufferDataEXT( plot.bufpos, 4*3*samples, pos, gl.GL_STATIC_DRAW)
-    gl.glTextureBufferEXT( plot.texpos, gl.GL_TEXTURE_BUFFER, gl.GL_RGB32F, plot.bufpos)
-
-    gl.glNamedBufferDataEXT( plot.buftimes, 4*samples, times, gl.GL_STATIC_DRAW)
-    gl.glTextureBufferEXT( plot.textimes, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.buftimes )
-    
-    gl.glNamedBufferDataEXT( plot.bufdata, 4*samples, data, gl.GL_STATIC_DRAW)
-    gl.glTextureBufferEXT( plot.texdata, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.bufdata )
-    
-    plot.pos   = pos
-    plot.times = times
-    
     updateRange(plot)
   end
   registerHandler(events.lap, lapUpdate)
@@ -707,25 +726,138 @@ do
       lapUpdate(trace,lap)
     end
     
+    -- reset original arrays, if previous was comparison
+    plot.samples = plot.origsamples
+    plot.pos     = plot.origpos
+    plot.data    = plot.origdata
+    plot.times   = plot.origtimes
+    
     local samples = plot.samples
+    local minmax = getSampledData(trace, lap, samples, nil, nil, gradient, selected, {plot.data})
     
-    local outputs = {
-      ffi.new("float[?]", samples)
-    }
-    
-    local minmax = getSampledData(trace, lap, samples, nil, nil, gradient, selected, outputs)
-    
+    plot.selected = selected
     plot.prop   = selected.props[1]
     plot.minmax = minmax[1]
-    plot.gradient = gradient > 0
+    plot.gradient = gradient
+    plot.hasGradient = gradient > 0
     
-    gl.glNamedBufferSubDataEXT(plot.bufdata, 0, 4*samples, outputs[1])
+    gl.glNamedBufferSubDataEXT(plot.bufdata, 0, 4*samples, plot.data)
     
-    plot.info = plot.prop.name..string.format(" [ %.2f, %.2f ] ", plot.minmax[1],plot.minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
-    return plot.info
+    local info = plot.prop.name..string.format(" [ %.2f, %.2f ] ", plot.minmax[1],plot.minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
+    
+    plot.info = " Lap "..plot.lap.." "..info.." - "..getTraceShortName(plot.trace)
   end
   
   registerHandler(events.property, propertyUpdate)
+  
+  local function propertyCompare(trace, lap, gradient)
+    local plot = gfx.plot
+    
+    if (not gfx.avg or (plot.trace == trace and plot.lap == lap)) then return end
+    
+    -- sample
+    local samples = getNumSamples(trace, lap)
+    local cmp = {
+      samples = samples,
+      pos     = ffi.new("float[?]", samples*3),
+      times   = ffi.new("float[?]", samples),
+      data    = ffi.new("float[?]", samples,    0)
+    }
+    
+    getSampledData(trace, lap, samples, cmp.times, cmp.pos, plot.gradient, plot.selected, plot.selected and {cmp.data})
+    
+    local interpolate = not plot.prop or plot.prop.interpolate 
+    -- use original data
+    local plotdata = not plot.prop and plot.origtimes or plot.origdata
+    local cmpdata  = not plot.prop and cmp.times      or cmp.data
+    
+    local newdata = ffi.new("float[?]", samples)
+    
+    local plotmarker = 1
+    local cmpmarker  = 1
+    
+    local tangent = v3.float(0,0,0)
+    local probe   = v3.float(0,0,0)
+    local minmax = {100000000,-100000000}
+    
+    newdata[0] = cmpdata[0] - plotdata[0]
+    for i=1, samples-2 do
+      refpos  = cmp.pos + (i*3)
+      refprev = refpos - 3
+      refnext = refpos + 3
+      
+      v3.sub(tangent, refnext, refprev)
+      
+      -- advance until sampled is in front of reference
+      -- merge previous and front based on distance
+      local function computeSample(marker, samples, trackpos, trackdata)
+        
+        while true do
+          local pos = trackpos + (marker * 3)
+          v3.sub(probe, pos, refpos)
+          
+          if (v3.dot(probe,tangent) > 0 or marker == samples-1) then
+            local wtA = v3.distance(pos - 3, refpos)
+            local wtB = v3.length(probe)
+            local data
+            if (interpolate) then
+              local sum = wtA + wtB
+              -- apply weight of opposite
+              data = (trackdata[marker]*wtA + trackdata[marker-1]*wtB) / sum
+            else
+              data = wtA < wtB and trackdata[marker] or trackdata[marker-1]
+            end
+            
+            return marker, data
+          end
+          
+          marker = marker + 1
+        end
+      end
+      
+      local cmpvalue
+      local plotvalue
+      --cmpmarker,  cmpvalue  = computeSample(cmpmarker,  cmp.samples,  cmp.pos,  cmpdata)
+      local cmpvalue = cmpdata[i]
+      plotmarker, plotvalue = computeSample(plotmarker, plot.origsamples, plot.origpos, plotdata)
+      
+      local value = cmpvalue - plotvalue
+      newdata[i] = value
+      minmax[1] = math.min(minmax[1], value)
+      minmax[2] = math.max(minmax[2], value)
+    end
+    newdata[samples-1] = cmpdata[cmp.samples-1] - plotdata[plot.origsamples-1]
+    
+    if (gradient > 0) then
+      local data = ffi.new("float[?]",samples)
+      minmax = {100000000,-100000000}
+      for i=0,samples-1 do
+        local value = newdata[ math.min(samples-1, i + gradient)] - newdata[ math.max(0,i - gradient)]
+        minmax[1] = math.min(minmax[1], value)
+        minmax[2] = math.max(minmax[2], value)
+        data[i] = value
+      end
+      newdata = data
+    end
+    
+    plot.minmax = minmax
+    plot.samples = samples
+    plot.times = cmp.times
+    plot.pos   = cmp.pos
+    plot.data  = newdata
+    
+    local name = not plot.prop and "Time" or plot.prop.name
+    local info = name..((plot.gradient or 0) > 0 and ".gradient("..plot.gradient..") " or "")..string.format(" [ %.2f, %.2f ] ", plot.minmax[1],plot.minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
+    
+    plot.info = " Lap "..lap.."/"..plot.lap.." "..info.." - "..getTraceShortName(trace).."/"..getTraceShortName(plot.trace)
+    
+    setupBuffers(plot)
+    
+    clearRange(plot)
+    updateRange(plot)
+  end
+  
+  registerHandler(events.compare, propertyCompare)
   
   function gfx.drawTrack(w,h,zoom,pan)
     -- swap y,z
@@ -832,24 +964,26 @@ do
     for i=1,numPlots do
       local plot = plots[i]
     
-      local dataTM = m4.float()
-      
       local isline = plot.minmax == nil
-
-      local minmax = minmaxs[i] or {-1,1}
-      local negative = minmax[1] < -0.0001
-      local range = math.max(minmax[2],math.abs(minmax[1]))
-      if (plot.gradient or negative) then
-        -- [-range,range]
-        m4.mulA( dataTM, m4.scaled( m4.tab(), 1/(range*2),1,1 ))
-        m4.mulA( dataTM, m4.translated( m4.tab(), range,0,0 ) )
-      else
-        -- [0,range]
-        m4.mulA( dataTM, m4.scaled( m4.tab(), 1/range,1,1 ))
-      end
-      if (isline ) then
-        local offset = numRacelines > 1 and ((curRaceline)/(numRacelines-1))*1.5-0.75 or -0.5
-        m4.mulA( dataTM, m4.translated( m4.tab(), offset,0,0 ) )
+      
+      local dataTM = m4.float()
+      do
+        local minmax = minmaxs[i] or {-1,1}
+        local negative = minmax[1] < -0.0001
+        local range = math.max(minmax[2],math.abs(minmax[1]))
+        local simple = minmax[1] > -0.0001 and minmax[2] < 1.0001
+        if (plot.hasGradient or negative or simple) then
+          -- [-range,range]
+          m4.mulA( dataTM, m4.scaled( m4.tab(), 1/(range*2),1,1 ))
+          m4.mulA( dataTM, m4.translated( m4.tab(), range,0,0 ) )
+        else
+          -- [0,range]
+          m4.mulA( dataTM, m4.scaled( m4.tab(), 1/range,1,1 ))
+        end
+        if (isline ) then
+          local offset = numRacelines > 1 and ((curRaceline)/(numRacelines-1))*1.5-0.75 or -0.5
+          m4.mulA( dataTM, m4.translated( m4.tab(), offset,0,0 ) )
+        end
       end
       
       gl.glUseProgram(progTrack)
@@ -913,10 +1047,10 @@ do
       end
     end
     
-    if (gfx.samplesAvg) then
+    if (gfx.avg) then
       
-      local samples = gfx.samplesAvg
-      local buffer  = bufavg
+      local samples = gfx.avg.samples
+      local buffer  = gfx.avg.bufpos
       
       gl.glUseProgram(progBasic)
       gl.glUniformMatrix4fv( unisBasic.viewProjTM, 1, gl.GL_FALSE, viewProjTM)
@@ -1032,7 +1166,7 @@ local function initTrackView(frame)
     for i=1,MAX_PLOTS do
       if (gfx.enabled[i] and gfx.plots[i].trace) then
         local plot = gfx.plots[i]
-        txt = txt..(first and "" or "\n").." Lap "..plot.lap.." "..plot.info.." - "..getTraceShortName(plot.trace)
+        txt = txt..(first and "" or "\n")..plot.info
         first = false
         num = num + 1
       end
@@ -1275,6 +1409,18 @@ local function initApp()
     traceSetLap( trace, lap)
   end)
 
+  frame:Connect(ID_LAP, wx.wxEVT_COMMAND_LIST_ITEM_RIGHT_CLICK,
+  function (event)
+    if (not (active.trace and gfx.avg) ) then return end
+    
+    setVisible(gfx.plot.idx, true)
+    
+    local trace,lap = lapview.getFromIdx(event:GetIndex())
+    
+    triggerEvent(events.compare, trace, lap, spngrad:GetValue())
+    trackview.changed()
+  end)
+
   tools:Connect(ID_CHKANIM, wx.wxEVT_COMMAND_CHECKBOX_CLICKED,
     function (event)
       if (event:IsChecked()) then
@@ -1304,10 +1450,10 @@ local function initApp()
   tools:Connect(ID_BTNRANGE, wx.wxEVT_COMMAND_BUTTON_CLICKED,
     function(event)
       if (rangeState == nil) then
-        rangeState = true
+        rangeState = "begin"
         triggerEvent(events.range, rangeState)
-      elseif (rangeState) then
-        rangeState = false
+      elseif (rangeState == "begin") then
+        rangeState = "end"
         triggerEvent(events.range, rangeState)
       else
         rangeState = nil

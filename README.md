@@ -29,13 +29,18 @@ A tool to open a trace file and inspect all data. Allows to browse through indiv
 
 The current lap will be rendered in the track-view. The first valid lap of a file is drawn as fine line on top, as well as a marker with the current position.
 
-Use the selectors (A,B,C,D) to compare different values or laps. A selector change will not
+Upon activation via double-click the driving line is shown (the default property). You can right-click another lap to compare the current property directly with the reference lap. The other lap's driving line will be rendered and colored by the difference to the original lap. Blue value means the other lap has a lower value than the reference lap. 
+You can also modify the "Gradient" value prior the comparison to visualize where the differences changed.
+
+![track_deltacompare](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_deltacompare.png)
+
+Next to this projected comparison, you can also use the selectors (A,B,C,D) to compare different values or laps next or on top of each other. A selector change will not
 cause any redraw, only selecting a lap or property will. With the "Animated driving line" feature 
 you can improve the perception of the stippled driving lines.
 
 ![track_animated](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_animated.gif)
 
-When double-clicking a single property it is printed in the track view. The current "Gradient" setting is applied, see explanation further down. It allows to visualize up- or down shifts for example.
+When double-clicking a single property it is plotted in the track view. The current "Gradient" setting is applied, see explanation further down. It allows to visualize up- or down shifts for example.
 
 ![track_gradient](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/track_gradient.png)
 
@@ -72,6 +77,9 @@ TODO:
 The default settings are stored in "config.lua". Create "config-user.lua" to override those.
 
 ### History
+* 29.07.2015:
+ * direct comparison of laps via right-click in lapview
+ * visual tweak to values that are within [0,1] to only use half of the color-range (pedal values look better)
 * 26.07.2015:
  * Recorder supports saving session on pause (for mid-session files to be appended in viewer)
  * Support for appending a file

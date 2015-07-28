@@ -296,12 +296,12 @@ do
         if (v.valuetype) then
           -- special case vectors
           if (not raw and (v.valuetype == "r3e.r3e_vec3_f64" or v.valuetype == "r3e.r3e_vec3_f32")) then
-            table.insert(tab,{name=prepend..i, descr=v.description})
+            table.insert(tab,{name=prepend..i, descr=v.description, interpolate=true})
           else
             getAllProperties(tab, v.valuetype:sub(5,-1), prepend..i..".", raw)
           end
         else
-          table.insert(tab,{name=prepend..i, descr=v.description})
+          table.insert(tab,{name=prepend..i, descr=v.description, interpolate=v.description == "r3e_int32"})
         end
       end
     end
@@ -319,7 +319,7 @@ function _M.getAllProperties(raw)
   local res = {}
   local used = raw and propertiesRaw or properties
   for i,v in ipairs(used) do
-    res[i] = {name=v.name,descr=v.descr}
+    res[i] = {name=v.name,descr=v.descr,interpolate=v.interpolate}
   end
   return res
 end
@@ -347,10 +347,10 @@ function _M.makeInterpolator()
   
   for i,v in ipairs(propertiesRaw) do
     local k = v.name
-    if (v.descr == "r3e_int32") then
-      str = str.."stateOut."..k.." = stateA."..k.."\n"
-    else
+    if (v.interpolate) then
       str = str.."stateOut."..k.." = lerp(stateA."..k..", stateB."..k..", fracc)\n"
+    else
+      str = str.."stateOut."..k.." = stateA."..k.."\n"
     end
   end
   
