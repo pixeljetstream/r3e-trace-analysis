@@ -482,6 +482,9 @@ do
       context:SetCurrent(canvas)
       gl.glewInit()
       
+      assert(gl.__GLEW_VERSION_3_3 ~=0,             "OpenGL 3.3 capable hardware and driver required")
+      assert(gl.__GLEW_EXT_direct_state_access ~=0, "EXT_direct_state_access support required")
+      
       --glu.enabledebug()
       
       -- from http://kennethmoreland.com/color-maps/
@@ -557,8 +560,9 @@ do
           GL_VERTEX_SHADER = "shaders/track.vert.glsl",
           GL_FRAGMENT_SHADER = "shaders/track.frag.glsl",
         })
-      
+      assert(progTrack, "could not load shaders/track")
       unisTrack = glu.programuniforms(progTrack)
+      
       gl.glUseProgram(progTrack)
       gl.glUniform1i(unisTrack.texPos,0)
       gl.glUniform1i(unisTrack.texData,1)
@@ -570,6 +574,7 @@ do
           GL_VERTEX_SHADER = "shaders/basic.vert.glsl",
           GL_FRAGMENT_SHADER = "shaders/basic.frag.glsl",
         })
+      assert(progBasic, "could not load shaders/basic")
       
       unisBasic = glu.programuniforms(progBasic)
     end

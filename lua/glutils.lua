@@ -11,10 +11,12 @@ function co.feedbackvaryings(prog,what,mode)
   gl.glTransformFeedbackVaryings(prog, #what, cptrs, mode)
 end
 
-function co.genprogram(sources,prelink)
+function co.genprogram(sources,prelink,binary)
   local prog = gl.glCreateProgram()
   
-  gl.glProgramParameteri(prog, gl.GL_PROGRAM_BINARY_RETRIEVABLE_HINT, gl.GL_TRUE)
+  if (binary) then
+    gl.glProgramParameteri(prog, gl.GL_PROGRAM_BINARY_RETRIEVABLE_HINT, gl.GL_TRUE)
+  end
   local status = ffi.new("GLint[1]",{0})
   for i,v in pairs(sources) do
     local shd = gl.glCreateShader(gl[i])
@@ -66,7 +68,7 @@ function co.loadfile(filename, how)
   return str
 end
 
-function co.loadprogram(filenames,prepend,prelink)
+function co.loadprogram(filenames,prepend,prelink,binary)
   local prepend = prepend or ""
   
   local sources = {}
@@ -79,7 +81,8 @@ function co.loadprogram(filenames,prepend,prelink)
   
   if (filesokay) then
     -- load from files
-    local prog = co.genprogram(sources,prelink)
+    -- load from files
+    local prog = co.genprogram(sources,prelink,binary)
     return prog
   else
     error("no program definition found, neither files, nor cache")
@@ -147,6 +150,10 @@ function co.enabledebug()
         os.exit(0)
       end
     end)
+  
+  local msgids = ffi.new("GLuint[1]")
+  msgids[0] = 131185
+  gl.glDebugMessageControlARB(gl.GL_DEBUG_SOURCE_API, gl.GL_DEBUG_TYPE_OTHER, gl.GL_DONT_CARE, 1, msgids, gl.GL_FALSE);
   
   gl.glDebugMessageCallbackARB(dbgfunc,nil)
   gl.glEnable(gl.GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
