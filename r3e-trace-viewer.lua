@@ -89,9 +89,10 @@ local function getSampledData(trace, lap, numSamples, times, pos, gradient, sele
     end
     -- swizzle pos
     if (pos) then
-      pos[n*3+0] = state.Player.Position.X
-      pos[n*3+1] = state.Player.Position.Z
-      pos[n*3+2] = state.Player.Position.Y
+      pos[n*4+0] = state.Player.Position.X
+      pos[n*4+1] = state.Player.Position.Z
+      pos[n*4+2] = state.Player.Position.Y
+      pos[n*4+3] = 1
     end
     if (num > 0) then
       if (gradient > 0) then
@@ -588,11 +589,11 @@ do
     for i,v in ipairs(trace.lapData) do
       if (v.valid) then
         local samples = getNumSamples(trace, i)
-        local pos     = ffi.new("float[?]", samples*3)
+        local pos     = ffi.new("float[?]", samples*4)
         local times   = ffi.new("float[?]", samples)
         getSampledData(trace, i, samples, {}, pos)
         
-        gl.glNamedBufferDataEXT(bufavg, 4*3*samples, pos, gl.GL_STATIC_DRAW)
+        gl.glNamedBufferDataEXT(bufavg, 4*4*samples, pos, gl.GL_STATIC_DRAW)
         gfx.avg = {
           samples = samples,
           pos     = pos,
@@ -631,7 +632,7 @@ do
       local idx = 0
       
       for i=begin,plot.samples-1 do
-        local pos = plot.pos + i * 3
+        local pos = plot.pos + i * 4
         local dist = v3.distance(pos,marker)
         if (dist < lastdist) then
           lastdist = dist
@@ -676,8 +677,8 @@ do
   registerHandler(events.range, rangeUpdate)
   
   local function setupBuffers(plot)
-    gl.glNamedBufferDataEXT( plot.bufpos, 4*3*plot.samples, plot.pos, gl.GL_STATIC_DRAW)
-    gl.glTextureBufferEXT( plot.texpos, gl.GL_TEXTURE_BUFFER, gl.GL_RGB32F, plot.bufpos)
+    gl.glNamedBufferDataEXT( plot.bufpos, 4*4*plot.samples, plot.pos, gl.GL_STATIC_DRAW)
+    gl.glTextureBufferEXT( plot.texpos, gl.GL_TEXTURE_BUFFER, gl.GL_RGBA32F, plot.bufpos)
 
     gl.glNamedBufferDataEXT( plot.buftimes, 4*plot.samples, plot.times, gl.GL_STATIC_DRAW)
     gl.glTextureBufferEXT( plot.textimes, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.buftimes )
@@ -702,7 +703,7 @@ do
     plot.info    = " Lap "..lap.." Driving line - "..getTraceShortName(trace)
     
     plot.data  = ffi.new("float[?]", samples, 0)
-    plot.pos   = ffi.new("float[?]", samples*3)
+    plot.pos   = ffi.new("float[?]", samples * 4)
     plot.times = ffi.new("float[?]", samples)
     
     -- keep original arrays around, as data above might be altered
@@ -770,7 +771,7 @@ do
     local samples = getNumSamples(trace, lap)
     local cmp = {
       samples = samples,
-      pos     = ffi.new("float[?]", samples*3),
+      pos     = ffi.new("float[?]", samples*4),
       times   = ffi.new("float[?]", samples),
       data    = ffi.new("float[?]", samples,    0)
     }
@@ -793,9 +794,9 @@ do
     
     newdata[0] = cmpdata[0] - plotdata[0]
     for i=1, samples-2 do
-      refpos  = cmp.pos + (i*3)
-      refprev = refpos - 3
-      refnext = refpos + 3
+      refpos  = cmp.pos + (i*4)
+      refprev = refpos - 4
+      refnext = refpos + 4
       
       v3.sub(tangent, refnext, refprev)
       
@@ -804,11 +805,11 @@ do
       local function computeSample(marker, samples, trackpos, trackdata)
         
         while true do
-          local pos = trackpos + (marker * 3)
+          local pos = trackpos + (marker * 4)
           v3.sub(probe, pos, refpos)
           
           if (v3.dot(probe,tangent) > 0 or marker == samples-1) then
-            local wtA = v3.distance(pos - 3, refpos)
+            local wtA = v3.distance(pos - 4, refpos)
             local wtB = v3.length(probe)
             local data
             if (interpolate) then
@@ -1076,7 +1077,7 @@ do
       gl.glEnable(gl.GL_LINE_STIPPLE)
       
       gl.glBindBuffer(gl.GL_ARRAY_BUFFER, buffer)
-      gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 4*3, nil)
+      gl.glVertexAttribPointer(0, 4, gl.GL_FLOAT, gl.GL_FALSE, 4*4, nil)
       gl.glEnableVertexAttribArray(0)
       
       gl.glLineWidth(2)
