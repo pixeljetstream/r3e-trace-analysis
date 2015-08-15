@@ -559,6 +559,12 @@ do
         })
       
       unisTrack = glu.programuniforms(progTrack)
+      gl.glUseProgram(progTrack)
+      gl.glUniform1i(unisTrack.texPos,0)
+      gl.glUniform1i(unisTrack.texData,1)
+      gl.glUniform1i(unisTrack.texTime,2)
+      gl.glUniform1i(unisTrack.texHeatMap,3)
+      gl.glUseProgram(0)
       
       progBasic = glu.loadprogram({
           GL_VERTEX_SHADER = "shaders/basic.vert.glsl",

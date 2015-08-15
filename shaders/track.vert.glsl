@@ -1,4 +1,4 @@
-#version 430
+#version 330
 
 uniform mat4  viewProjTM;
 uniform mat4  dataTM;
@@ -6,9 +6,9 @@ uniform float width;
 uniform float shift;
 uniform int   numPoints;
 
-layout(binding=0) uniform samplerBuffer texPos;
-layout(binding=1) uniform samplerBuffer texData;
-layout(binding=2) uniform samplerBuffer texTime;
+uniform samplerBuffer texPos;
+uniform samplerBuffer texData;
+uniform samplerBuffer texTime;
 
 out Interpolant {
   float data;

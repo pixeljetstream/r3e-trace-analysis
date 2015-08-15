@@ -1,6 +1,6 @@
-#version 430
+#version 330
 
-layout(binding=3) uniform sampler1D texHeatMap;
+uniform sampler1D texHeatMap;
 uniform vec4  color;
 uniform vec4  timestipple;
 uniform vec2  timeclamp;
