@@ -900,6 +900,10 @@ do
     gl.glEnable(gl.GL_SAMPLE_ALPHA_TO_COVERAGE)
     
     local viewProjTM = m4.ortho(m4.float(), -1*aspectw,1*aspectw, -1*aspecth, 1*aspecth, -1, 1)
+    
+    m4.mulA( viewProjTM, m4.scaled( m4.tab(), zoom, zoom, 1 ))
+    m4.mulA( viewProjTM, m4.translated( m4.tab(), pan[1], pan[2], 0))
+    
     local scale = math.max(hrange[1],hrange[2])
     if (rotate) then
       m4.mulA( viewProjTM, m4.rotatedXYZ( m4.tab(), v3.tab(0,0,math.rad(-90)) ))
@@ -1100,9 +1104,9 @@ end
 local function initTrackView(frame)
   local init = true
   
-  --local subframe = wx.wxWindow(frame, wx.wxID_ANY)
+  --local subframe = wx.wxWindow(frame, ID_TRACK)
   
-  local canvas = wx.wxGLCanvas(subframe or frame, wx.wxID_ANY, {
+  local canvas = wx.wxGLCanvas(subframe or frame, ID_TRACK, {
   wx.WX_GL_RGBA, 1, wx.WX_GL_DOUBLEBUFFER, 1, 
   wx.WX_GL_MIN_RED, 8, wx.WX_GL_MIN_GREEN, 8, wx.WX_GL_MIN_BLUE, 8, wx.WX_GL_MIN_ALPHA, 8,
   wx.WX_GL_STENCIL_SIZE, 0, wx.WX_GL_DEPTH_SIZE, 0
@@ -1133,6 +1137,8 @@ local function initTrackView(frame)
   
   local lastw,lasth
   
+  local ctrl = glu.getOrthoCtrl()
+  
   local function render()
     --local dc = wx.wxPaintDC(canvas)
     context:SetCurrent(canvas)
@@ -1161,7 +1167,7 @@ local function initTrackView(frame)
     gl.glClear(gl.GL_COLOR_BUFFER_BIT + gl.GL_DEPTH_BUFFER_BIT + gl.GL_STENCIL_BUFFER_BIT)
     
     if (gfx.trace) then 
-      gfx.drawTrack(w,h,zoom,pan)
+      gfx.drawTrack(w,h,ctrl.zoom,ctrl.pan)
     end
 
     gl.glBindFramebuffer( gl.GL_DRAW_FRAMEBUFFER, 0)
@@ -1190,6 +1196,49 @@ local function initTrackView(frame)
   end
   
   canvas:Connect(wx.wxEVT_PAINT, render)
+  
+  local lb = false
+  local rb = false
+  
+  local function updateCtrl(event)
+    local sz = canvas:GetSize()
+    local w,h = sz:GetWidth(), sz:GetHeight()
+    ctrl:update( w, h, event:GetX(), event:GetY(), lb, rb)
+    canvas:Refresh()
+  end
+  
+  local function OnDown(event)
+    if (not canvas:HasCapture()) then canvas:CaptureMouse() end
+    lb = event:LeftIsDown()
+    rb = event:RightIsDown()
+    updateCtrl(event)
+  end
+
+  local function OnUp(event)
+    if lb or rb then
+      if canvas:HasCapture() then canvas:ReleaseMouse() end
+      lb = false
+      rb = false
+      updateCtrl(event)
+    end
+  end
+
+  local function OnMotion(event)
+    if lb or rb then
+      updateCtrl(event)
+    elseif canvas:HasCapture() then -- just in case we lost focus somehow
+      canvas:ReleaseMouse()
+      lb = false
+      rb = false
+      updateCtrl(event)
+    end
+  end
+  
+  canvas:Connect(wx.wxEVT_LEFT_DOWN,  OnDown )
+  canvas:Connect(wx.wxEVT_LEFT_UP,    OnUp )
+  canvas:Connect(wx.wxEVT_RIGHT_DOWN, OnDown )
+  canvas:Connect(wx.wxEVT_RIGHT_UP,   OnUp )
+  canvas:Connect(wx.wxEVT_MOTION,     OnMotion )
   
   registerHandler(events.time, function() subframe.changed() end)
   

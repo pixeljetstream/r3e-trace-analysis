@@ -159,4 +159,68 @@ function co.enabledebug()
   gl.glEnable(gl.GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
 end
 
+function co.getOrthoCtrl()
+  return {
+    panning = false,
+    zooming = false,
+    
+    lb = false,
+    rb = false,
+    
+    zoompos = nil,
+    panpos = nil,
+
+    zoom = 1,
+    pan = {0,0},
+    
+    --[[
+      ctrl:update()
+      gl.glMatrixMode(gl.GL_MODELVIEW)
+      gl.glLoadIdentity()
+      gl.glScalef( ctrl.zoom, ctrl.zoom, 1 )
+      gl.glTranslatef( ctrl.pan[1], ctrl.pan[2], 0 )
+    --]]
+    
+    update = function(self, winw, winh, mx, my, lb, rb)
+      if (rb and not self.zooming) then
+        self.zooming  = true
+        self.zoompos  = {mx,my}
+        self.zoomstart = self.zoom
+        self.zoompan = {self.pan[1],self.pan[2]}
+      end
+      
+      if (not rb and self.zooming) then
+        self.zooming  = false
+      end
+      
+      if (lb and not self.panning) then
+        self.panning = true
+        self.panpos  = {mx,my}
+        self.panstart = {self.pan[1],self.pan[2]}
+      end
+      
+      if (not lb and self.panning) then
+        self.panning = false
+      end
+      
+      if (self.zooming) then
+        local delta = self.zoompos[2] - my
+        if (delta > 0) then
+          self.zoom = self.zoomstart * (1 + delta / 256)
+        else
+          self.zoom = self.zoomstart / (1 - delta / 256)
+        end
+      end
+      
+      if (self.panning) then
+        local dx = -(self.panpos[1] - mx) / winw * 2
+        local dy =  (self.panpos[2] - my) / winh * 2
+        self.pan[1] = self.panstart[1] + dx / self.zoom
+        self.pan[2] = self.panstart[2] + dy / self.zoom
+      end
+      
+    end
+  }
+end
+
 return co

@@ -68,15 +68,14 @@ Positive values means the properties increased in the given gradient time span (
 ![csvexport_gradient](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/csvexport_gradient.png)
 
 
-TODO:
-
-* Zoom and pan
-
 ### Settings
 
 The default settings are stored in "config.lua". Create "config-user.lua" to override those.
 
 ### History
+* 15.08.2015:
+ * Shaders using OpenGL 3.3 instead of 4.3 now
+ * Added pan (drag left) and zoom (drag right)
 * 29.07.2015:
  * direct comparison of laps via right-click in lapview
  * visual tweak to values that are within [0,1] to only use half of the color-range (pedal values look better)
