@@ -484,7 +484,6 @@ do
       gl.glewInit()
       
       assert(gl.__GLEW_VERSION_3_3 ~=0,             "OpenGL 3.3 capable hardware and driver required")
-      assert(gl.__GLEW_EXT_direct_state_access ~=0, "EXT_direct_state_access support required")
       
       --glu.enabledebug()
       
@@ -583,6 +582,29 @@ do
     return context
   end
   
+  local function bindMultiTexture( unit, what, tex)
+    gl.glActiveTexture(unit)
+    gl.glBindTexture(what,tex)
+  end
+  
+  local function bufferData(buffer, ...)
+    gl.glBindBuffer(gl.GL_TEXTURE_BUFFER, buffer)
+    gl.glBufferData(gl.GL_TEXTURE_BUFFER, ...)
+    gl.glBindBuffer(gl.GL_TEXTURE_BUFFER, 0)
+  end
+  
+  local function bufferSubData(buffer, ...)
+    gl.glBindBuffer(gl.GL_TEXTURE_BUFFER, buffer)
+    gl.glBufferSubData(gl.GL_TEXTURE_BUFFER, ...)
+    gl.glBindBuffer(gl.GL_TEXTURE_BUFFER, 0)
+  end
+  
+  local function textureBuffer(tex, ...)
+    gl.glBindTexture(gl.GL_TEXTURE_BUFFER, tex)
+    gl.glTexBuffer  (gl.GL_TEXTURE_BUFFER, ...)
+    gl.glBindTexture(gl.GL_TEXTURE_BUFFER, 0)
+  end
+  
   local function appendUpdate(trace)
     if (gfx.avg) then return end
     
@@ -593,7 +615,8 @@ do
         local times   = ffi.new("float[?]", samples)
         getSampledData(trace, i, samples, {}, pos)
         
-        gl.glNamedBufferDataEXT(bufavg, 4*4*samples, pos, gl.GL_STATIC_DRAW)
+        bufferData(bufavg, 4*4*samples, pos, gl.GL_STATIC_DRAW)
+        
         gfx.avg = {
           samples = samples,
           pos     = pos,
@@ -677,14 +700,14 @@ do
   registerHandler(events.range, rangeUpdate)
   
   local function setupBuffers(plot)
-    gl.glNamedBufferDataEXT( plot.bufpos, 4*4*plot.samples, plot.pos, gl.GL_STATIC_DRAW)
-    gl.glTextureBufferEXT( plot.texpos, gl.GL_TEXTURE_BUFFER, gl.GL_RGBA32F, plot.bufpos)
+    bufferData    ( plot.bufpos, 4*4*plot.samples, plot.pos, gl.GL_STATIC_DRAW)
+    textureBuffer ( plot.texpos, gl.GL_RGBA32F, plot.bufpos)
 
-    gl.glNamedBufferDataEXT( plot.buftimes, 4*plot.samples, plot.times, gl.GL_STATIC_DRAW)
-    gl.glTextureBufferEXT( plot.textimes, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.buftimes )
+    bufferData    ( plot.buftimes, 4*plot.samples, plot.times, gl.GL_STATIC_DRAW)
+    textureBuffer ( plot.textimes, gl.GL_R32F, plot.buftimes )
     
-    gl.glNamedBufferDataEXT( plot.bufdata, 4*plot.samples, plot.data, gl.GL_STATIC_DRAW)
-    gl.glTextureBufferEXT( plot.texdata, gl.GL_TEXTURE_BUFFER, gl.GL_R32F, plot.bufdata )
+    bufferData    ( plot.bufdata, 4*plot.samples, plot.data, gl.GL_STATIC_DRAW)
+    textureBuffer ( plot.texdata,  gl.GL_R32F, plot.bufdata )
   end
 
   local function lapUpdate(trace, lap)
@@ -753,7 +776,7 @@ do
     plot.gradient = gradient
     plot.hasGradient = gradient > 0
     
-    gl.glNamedBufferSubDataEXT(plot.bufdata, 0, 4*samples, plot.data)
+    bufferSubData(plot.bufdata, 0, 4*samples, plot.data)
     
     local info = plot.prop.name..string.format(" [ %.2f, %.2f ] ", plot.minmax[1],plot.minmax[2])..(gradient > 0 and " Gradient: "..gradient.." " or "")
     
@@ -1004,10 +1027,10 @@ do
       
       gl.glUseProgram(progTrack)
       
-      gl.glBindMultiTextureEXT(gl.GL_TEXTURE0, gl.GL_TEXTURE_BUFFER, plot.texpos)
-      gl.glBindMultiTextureEXT(gl.GL_TEXTURE1, gl.GL_TEXTURE_BUFFER, plot.texdata)
-      gl.glBindMultiTextureEXT(gl.GL_TEXTURE2, gl.GL_TEXTURE_BUFFER, plot.textimes)
-      gl.glBindMultiTextureEXT(gl.GL_TEXTURE3, gl.GL_TEXTURE_1D, texheat)
+      bindMultiTexture(gl.GL_TEXTURE0, gl.GL_TEXTURE_BUFFER, plot.texpos)
+      bindMultiTexture(gl.GL_TEXTURE1, gl.GL_TEXTURE_BUFFER, plot.texdata)
+      bindMultiTexture(gl.GL_TEXTURE2, gl.GL_TEXTURE_BUFFER, plot.textimes)
+      bindMultiTexture(gl.GL_TEXTURE3, gl.GL_TEXTURE_1D, texheat)
       
       gl.glUniformMatrix4fv( unisTrack.viewProjTM, 1, gl.GL_FALSE, viewProjTM )
       gl.glUniformMatrix4fv( unisTrack.dataTM, 1, gl.GL_FALSE, dataTM)
@@ -1051,10 +1074,10 @@ do
       gl.glDisableVertexAttribArray(0)
       gl.glDisableVertexAttribArray(1)
       
-      gl.glBindMultiTextureEXT(gl.GL_TEXTURE0, gl.GL_TEXTURE_BUFFER, 0)
-      gl.glBindMultiTextureEXT(gl.GL_TEXTURE1, gl.GL_TEXTURE_BUFFER, 0)
-      gl.glBindMultiTextureEXT(gl.GL_TEXTURE2, gl.GL_TEXTURE_BUFFER, 0)
-      gl.glBindMultiTextureEXT(gl.GL_TEXTURE3, gl.GL_TEXTURE_1D, 0)
+      bindMultiTexture(gl.GL_TEXTURE3, gl.GL_TEXTURE_1D, 0)
+      bindMultiTexture(gl.GL_TEXTURE2, gl.GL_TEXTURE_BUFFER, 0)
+      bindMultiTexture(gl.GL_TEXTURE1, gl.GL_TEXTURE_BUFFER, 0)
+      bindMultiTexture(gl.GL_TEXTURE0, gl.GL_TEXTURE_BUFFER, 0)
       
       if (isline) then
         curRaceline = curRaceline + 1
