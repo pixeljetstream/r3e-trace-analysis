@@ -6,7 +6,7 @@ uniform vec4  timestipple;
 uniform vec2  timeclamp;
 uniform vec2  sidecontrol;
 
-out layout(location=0,index=0) vec4 out_Color;
+layout(location=0,index=0) out vec4 out_Color;
 
 in Interpolant {
   float data;
