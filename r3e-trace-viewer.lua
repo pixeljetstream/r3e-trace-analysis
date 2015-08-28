@@ -143,17 +143,17 @@ local function saveCSV(trace, lap, selected, gradient, filename)
   getSampledData(trace, lap, samples, times, pos, gradient, selected, outputs)
   
   local f = io.open(filename,"wt")
-  f:write('"times"; ')
+  f:write('"Time", ')
   for i=1,num do
-    f:write('"'..selected.props[i].name..'"; ')
+    f:write('"'..selected.props[i].name..'", ')
   end
   f:write("\n")
   for n=0,samples-1 do
     f:write(tostring(times[n]))
-    f:write("; ")
+    f:write(", ")
     for i=1,num do
       f:write(tostring(outputs[i][n]))
-      f:write("; ")
+      f:write(", ")
     end
     f:write("\n")
   end
