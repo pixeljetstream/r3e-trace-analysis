@@ -74,7 +74,7 @@ The default settings are stored in "config.lua". Create "config-user.lua" to ove
 
 ### History
 * 30.08.2015:
- * Settings stored in ini file (window layout...) <User>/AppData/RaceTraceViewer.ini
+ * Settings stored in ini file (window layout...) User/AppData/RaceTraceViewer.ini
  * Customizable UI
  * New file menu entry to store entire session with all properties as csv
  * No longer print values as vectors, better to work with X,Y,Z properties
@@ -107,8 +107,4 @@ The default settings are stored in "config.lua". Create "config-user.lua" to ove
  * allow "only driving" recordings, that filter away frames in game menu or driven by AI
 * 11.07.2015: 
  * initial release
-
-### Caveats
-
-The Lua implemention of record and should be replaced by native C/C++ code to allow for greater sampling and playback rates. This is currently not a primary goal, as only few apps need high frequency data.
 
