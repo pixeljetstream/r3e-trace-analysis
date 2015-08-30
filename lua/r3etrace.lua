@@ -106,6 +106,9 @@ function _M.loadTrace(filename)
     local lastLap
     local lastFrame
     local lapValid = true
+    
+    
+    
     for i=0,frames-1 do
       local state     = content + i
       

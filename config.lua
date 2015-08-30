@@ -49,3 +49,6 @@ viewer.msaa = 8
 
 -- remove label during animation
 viewer.animationremoveslabel = false
+
+-- use conversions (m/s to km/h, radians to degress)
+viewer.convertvalues = true

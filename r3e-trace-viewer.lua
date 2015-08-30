@@ -46,6 +46,17 @@ local function getNumSamples(trace, lap)
   return math.floor((lap.time/rate + 1)/2)*2
 end
 
+local anglethresh = config.viewer.convertvalues and 180 or math.pi
+local function computeGradient(prop, resPrev, resNext)
+  if (prop.angle) then
+    if (math.abs(resNext-resPrev) > anglethresh) then
+      resNext = resNext + (resNext < 0 and (anglethresh*2) or 0)
+      resPrev = resPrev + (resPrev < 0 and (anglethresh*2) or 0)
+    end
+  end
+  return resNext-resPrev
+end
+
 local function getSampledData(trace, lap, numSamples, times, pos, gradient, selected, outputs)
   local state     = ffi.new( r3e.SHARED_TYPE )
   local statePrev = ffi.new( r3e.SHARED_TYPE )
@@ -68,15 +79,11 @@ local function getSampledData(trace, lap, numSamples, times, pos, gradient, sele
     minmax[i][2] = math.max(minmax[i][2], res)
   end
   
-  local function getMagnitude(res)
-    return math.sqrt(res[1]*res[1] + res[2]*res[2] + res[3]*res[3])
-  end
-  
   local results = {}
   local resultsPrev = {}
   local resultsNext = {}
   
-  gradient = (gradient or 0) * 0.5
+  gradient = (gradient and gradient/100 or 0) * 0.5
   
   for n=0,numSamples-1 do
     local time = lap.timeBegin + rate * n
@@ -96,19 +103,12 @@ local function getSampledData(trace, lap, numSamples, times, pos, gradient, sele
     end
     if (num > 0) then
       if (gradient > 0) then
-        trace:getInterpolatedFrame(statePrev, time - gradient * rate)
-        trace:getInterpolatedFrame(stateNext, time + gradient * rate)
+        trace:getInterpolatedFrame(statePrev, time - gradient)
+        trace:getInterpolatedFrame(stateNext, time + gradient)
         selected.fnaccess(resultsPrev, statePrev)
         selected.fnaccess(resultsNext, stateNext)
         for i=1,num do
-          local v = selected.props[i]
-          local resPrev = resultsPrev[i]
-          local resNext = resultsNext[i]
-          if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
-            resPrev = getMagnitude(resPrev)
-            resNext = getMagnitude(resNext)
-          end
-          local res = resNext-resPrev
+          local res = computeGradient(selected.props[i], resultsPrev[i], resultsNext[i])
           outputs[i][n] = res
           checkMinMax(i,res)
         end
@@ -117,9 +117,6 @@ local function getSampledData(trace, lap, numSamples, times, pos, gradient, sele
         for i=1,num do
           local v = selected.props[i]
           local res = results[i]
-          if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
-            res = getMagnitude(res)
-          end
           outputs[i][n] = res
           checkMinMax(i,res)
         end
@@ -128,6 +125,75 @@ local function getSampledData(trace, lap, numSamples, times, pos, gradient, sele
   end
     
   return minmax 
+end
+
+local function getProps(convert)
+  local allprops = r3emap.getAllProperties()
+  local props = allprops
+  
+  if (config.viewer.dumpfilter) then
+    -- get properties
+    
+    local lkprops = {}
+    for i,v in ipairs(allprops) do
+      lkprops[v[1]] = i
+    end
+    -- find 
+    props = {}
+    for i,v in ipairs(config.replay.dumpfilter) do
+      local idx = lkprops[v] 
+      if (idx) then
+        table.insert(props, allprops[idx])
+      end
+    end
+  end
+  
+  local fnaccess = r3emap.makeAccessor(props, convert)
+  
+  return props,fnaccess
+end
+
+local function computeAllLapStats(trace)
+  local props,fnaccess = getProps(config.viewer.convertvalues)
+  
+  local num     = #props
+  local results = {}
+  
+  for i,v in ipairs(trace.lapData) do
+    local minmax  = {}
+    local avg     = {}
+    
+    for i=1,num do
+      minmax[i]  = {10000000,-1000000}
+      avg[i]     = 0
+    end
+    
+    local numFrames = v.frameCount
+    local frameEnd  = v.frameBegin + v.frameCount
+    
+    for f=v.frameBegin,frameEnd do
+      local state = trace.content + f
+      fnaccess(results,state)
+      for i=1,num do
+        local res = results[i]
+        minmax[i][1] = math.min(minmax[i][1], res)
+        minmax[i][2] = math.max(minmax[i][2], res)
+        avg[i]       = avg[i] + res
+      end
+    end
+    
+    for i=1,num do
+      avg[i]     = avg[i]/numFrames
+    end
+    
+    v.avg = avg
+    v.minmax = minmax
+    
+  end
+end
+
+local function getTraceShortName(trace)
+  return trace.filename:match("([^/\\]+)$")
 end
 
 local function saveCSV(trace, lap, selected, gradient, filename)
@@ -159,12 +225,54 @@ local function saveCSV(trace, lap, selected, gradient, filename)
   end
   f:flush()
   f:close()
+  
+  reportStatus("saved CSV "..filename)
 end
 
-local function getTraceShortName(trace)
-  return trace.filename:match("([^/\\]+)$")
+local function saveSessionCSV(traces, filename)
+  local props, fnaccess = getProps(false)
+  local num = #props
+  
+  local f = io.open(filename,"wt")
+  f:write('"Time", ')
+  for i=1,num do
+    f:write('"'..props[i].name..'", ')
+  end
+  f:write("\n")
+  
+  local results = {}
+  
+  local lastTime = 0
+  
+  for t,trace in ipairs(traces) do
+    local frames = trace.frames
+    local content = trace.content
+    
+    local baseTime = content[0].Player.GameSimulationTime
+    local delta    = content[1].Player.GameSimulationTime - baseTime
+    
+    local time = 0
+    for n=0,frames-1 do
+      local state = content + n
+      fnaccess(results,state)
+      time = state.Player.GameSimulationTime - baseTime + lastTime
+      f:write( tostring(time) )
+      f:write(", ")
+      for i=1,num do
+        f:write(tostring(results[i]))
+        f:write(", ")
+      end
+      f:write("\n")
+    end
+    
+    lastTime = time + delta
+  end
+  
+  f:flush()
+  f:close()
+  
+  reportStatus("saved CSV "..filename)
 end
-
 
 ---------------------------------------------
 
@@ -184,8 +292,12 @@ local active = {
   lap = 0,
   time = 0,
   state = ffi.new( r3e.SHARED_TYPE ),
+  statePrev = ffi.new( r3e.SHARED_TYPE ),
+  stateNext = ffi.new( r3e.SHARED_TYPE ),
   lapData = nil,
   trace = nil,
+  gradient = 0,
+  traces = {},
 }
 
 local function triggerEvent(tab, ...)
@@ -196,10 +308,21 @@ end
 
 local function traceSetTime( time )
   active.time = time
-  active.trace:getFrame( active.state, time )
-  triggerEvent(events.time, active.trace, active.lap, time, active.state)
+  
+  local gradient = (active.gradient/100) * 0.5
+  active.trace:getInterpolatedFrame( active.state, time )
+  active.trace:getInterpolatedFrame( active.statePrev, time - gradient)
+  active.trace:getInterpolatedFrame( active.stateNext, time + gradient)
+  
+  triggerEvent(events.time, active.trace, active.lap, time, active.state, active.gradient > 0, active.statePrev, active.stateNext)
+  reportStatus("time set")
 end
 
+local function traceSetGradient( gradient)
+  active.gradient = gradient
+  traceSetTime(active.time)
+  reportStatus("gradient set")
+end
 
 local function traceSetLap(trace, lap)
   active.trace   = trace
@@ -207,10 +330,16 @@ local function traceSetLap(trace, lap)
   active.lap      = lap
   triggerEvent(events.lap, trace, lap, nil, nil)
   traceSetTime(active.lapData.timeBegin)
+  reportStatus("lap selection")
 end
 
 local function traceSetProperty(selected, gradient)
   triggerEvent(events.property, active.trace, active.lap, selected, gradient)
+  reportStatus("property selection")
+end
+
+local function traceSessionSaveCSV(filename)
+  saveSessionCSV(active.traces, filename)
 end
 
 local function traceSaveCSV(selected, gradient, filename)
@@ -224,8 +353,12 @@ local function traceOpenFile(fileName)
   
   if (trace) then
     app:SetTitle(APP_NAME.." - "..fileName)
+    computeAllLapStats(trace)
     triggerEvent(events.open, trace, nil, nil, nil)
     traceSetLap(trace, 1)
+    
+    active.traces = {trace}
+    reportStatus("loaded "..fileName)
   else
     reportStatus("load failed")
   end
@@ -236,8 +369,12 @@ local function traceAppendFile(fileName)
   
   local trace = r3etrace.loadTrace(fileName)
   if (trace) then
-    app:SetTitle(APP_NAME.." - "..fileName)
+    computeAllLapStats(trace)
     triggerEvent(events.append, trace, nil, nil, nil)
+    table.insert(active.traces, trace)
+    reportStatus("appended "..fileName)
+  else
+    reportStatus("append failed")
   end
 end
 
@@ -347,57 +484,74 @@ end
 ---------------------------------------------
 
 local function initPropertyView(frame)
+  local props,fnaccess = getProps(config.viewer.convertvalues)
+  local numProps = #props
   
-  local allprops = r3emap.getAllProperties()
-  local props = allprops
-  
-  if (config.viewer.dumpfilter) then
-    -- get properties
-    
-    local lkprops = {}
-    for i,v in ipairs(allprops) do
-      lkprops[v[1]] = i
-    end
-    -- find 
-    props = {}
-    for i,v in ipairs(config.replay.dumpfilter) do
-      local idx = lkprops[v] 
-      if (idx) then
-        table.insert(used, allprops[idx])
-      end
-    end
-  end
-  
-  local fnaccess = r3emap.makeAccessor(props)
   local results = {}
+  local resultsPrev = {}
+  local resultsNext = {}
   
   local control = wx.wxListCtrl(frame, ID_PROPERTY,
-                            wx.wxDefaultPosition, wx.wxSize(200, 200),
+                            wx.wxDefaultPosition, wx.wxSize(250, 200),
                             wx.wxLC_REPORT)
   control:InsertColumn(0, "Property")
   control:InsertColumn(1, "Value")
+  control:InsertColumn(2, "LapMin")
+  control:InsertColumn(3, "LapMax")
+  control:InsertColumn(4, "LapAvg")
+  control:InsertColumn(5, "Gradient")
+  local gradColumn = 5
   control:SetColumnWidth(0,180)
-  control:SetColumnWidth(1,210)
+  local vwidth = 70
+  control:SetColumnWidth(1,vwidth)
+  control:SetColumnWidth(2,vwidth)
+  control:SetColumnWidth(3,vwidth)
+  control:SetColumnWidth(4,vwidth)
+  control:SetColumnWidth(5,vwidth)
+  
   
   -- create
   for i,v in ipairs(props) do
     control:InsertItem(i-1, v.name)
   end
   
-  local function time(trace, lap, time, state) 
+  local function fmtValue(prop, v)
+    local txt
+    if( prop.interpolate) then
+      txt = string.format("%.3f",v)
+    else
+      txt = tostring(v)
+    end
+    return txt
+  end
+  
+  local function time(trace, lap, time, state, gradActive, statePrev, stateNext) 
     -- update values
     fnaccess(results, state)
+    if (gradActive) then
+      fnaccess(resultsPrev, statePrev)
+      fnaccess(resultsNext, stateNext)
+    end
     for i,v in ipairs(results) do
-      local txt
-      if type(v) == "table" then
-        local v3length = math.sqrt(v[1]*v[1] + v[2]*v[2] + v[3]*v[3])
-        txt = string.format("{%.3f, %.3f, %.3f}  %.3f",v[1],v[2],v[3],v3length)
-      elseif( props[i].name:match("Speed")) then
-        txt = string.format("%.3f | %.3f", v, v * 3.6)
-      else
-        txt = tostring(v)
-      end
+      local txt = fmtValue(props[i], v)
       control:SetItem(i-1, 1, txt)
+      if (gradActive) then
+        local res = computeGradient(props[i], resultsPrev[i], resultsNext[i])
+        local txt = fmtValue(props[i], res)
+        control:SetItem(i-1, gradColumn, txt)
+      else
+        control:SetItem(i-1, gradColumn, "")
+      end
+    end
+  end
+  
+  local function lap(trace, lap)
+    local lap = trace.lapData[lap]
+    
+    for i=1,numProps do
+      control:SetItem(i-1, 2, fmtValue(props[i], lap.minmax[i][1]))
+      control:SetItem(i-1, 3, fmtValue(props[i], lap.minmax[i][2]))
+      control:SetItem(i-1, 4, fmtValue(props[i], lap.avg[i]))
     end
   end
   
@@ -416,12 +570,13 @@ local function initPropertyView(frame)
       end
     end
     
-    result.fnaccess = r3emap.makeAccessor(result.props)
+    result.fnaccess = r3emap.makeAccessor(result.props, config.viewer.convertvalues)
     
     return result
   end
 
   registerHandler(events.time, time)
+  registerHandler(events.lap,  lap)
   
   return control
 end
@@ -673,7 +828,7 @@ do
       plot.rangeTimeBegin = plot.times[plot.rangeBegin]
       plot.rangeTimeDuration  = plot.times[plot.samples-1] - plot.rangeTimeBegin
     end
-    if(gfx.rangeState == false) then
+    if(gfx.rangeState == "end") then
       plot.rangeEnd   = findClosest(plot.rangeBegin, gfx.rangeEnd)
       plot.rangeTimeDuration  = plot.times[plot.rangeEnd] - plot.rangeTimeBegin
     end
@@ -792,6 +947,7 @@ do
     
     -- sample
     local samples = getNumSamples(trace, lap)
+    local rate    = lap.time/(samples-1)
     local cmp = {
       samples = samples,
       pos     = ffi.new("float[?]", samples*4),
@@ -866,8 +1022,11 @@ do
     if (gradient > 0) then
       local data = ffi.new("float[?]",samples)
       minmax = {100000000,-100000000}
+      
+      local gradstep = math.ceil((gradient/100)*0.5/rate)
+      
       for i=0,samples-1 do
-        local value = newdata[ math.min(samples-1, i + gradient)] - newdata[ math.max(0,i - gradient)]
+        local value = newdata[ math.min(samples-1, i + gradstep)] - newdata[ math.max(0,i - gradstep)]
         minmax[1] = math.min(minmax[1], value)
         minmax[2] = math.max(minmax[2], value)
         data[i] = value
@@ -923,10 +1082,10 @@ do
     gl.glDisable(gl.GL_DEPTH_TEST)
     gl.glEnable(gl.GL_SAMPLE_ALPHA_TO_COVERAGE)
     
-    local viewProjTM = m4.ortho(m4.float(), -1*aspectw,1*aspectw, -1*aspecth, 1*aspecth, -1, 1)
-    
+    local viewProjTM = m4.float() 
     m4.mulA( viewProjTM, m4.scaled( m4.tab(), zoom, zoom, 1 ))
     m4.mulA( viewProjTM, m4.translated( m4.tab(), pan[1], pan[2], 0))
+    m4.mulA( viewProjTM, m4.ortho( m4.tab(), -1*aspectw,1*aspectw, -1*aspecth, 1*aspecth, -1, 1))
     
     local scale = math.max(hrange[1],hrange[2])
     if (rotate) then
@@ -1135,7 +1294,7 @@ local function initTrackView(frame)
   wx.WX_GL_MIN_RED, 8, wx.WX_GL_MIN_GREEN, 8, wx.WX_GL_MIN_BLUE, 8, wx.WX_GL_MIN_ALPHA, 8,
   wx.WX_GL_STENCIL_SIZE, 0, wx.WX_GL_DEPTH_SIZE, 0
   },
-  wx.wxDefaultPosition, wx.wxDefaultSize, wx.wxEXPAND + wx.wxFULL_REPAINT_ON_RESIZE)
+  wx.wxDefaultPosition, wx.wxSize(512,512), wx.wxEXPAND + wx.wxFULL_REPAINT_ON_RESIZE)
 
   subframe = subframe or canvas
 
@@ -1280,11 +1439,13 @@ local function initApp()
   frame.timer = timer
   
   local ID_MENUAPPEND = NewID()
+  local ID_MENUEXPORT = NewID()
 
   -- create a simple file menu
   local fileMenu = wx.wxMenu()
   fileMenu:Append(wx.wxID_OPEN, "&Open", "Open Trace file")
   fileMenu:Append(ID_MENUAPPEND,"&Append", "Append Trace file")
+  fileMenu:Append(ID_MENUEXPORT,"&Save As", "Save session as csv file")
   fileMenu:Append(wx.wxID_EXIT, "E&xit", "Quit the program")
 
   -- create a simple help menu
@@ -1302,43 +1463,89 @@ local function initApp()
   -- create a simple status bar
   frame:CreateStatusBar(1)
   frame:SetStatusText("Welcome.")
-
-  -- connect the selection event of the exit menu item to an
-  -- event handler that closes the window
   
-  frame:Connect(ID_MAIN, wx.wxEVT_CLOSE_WINDOW,
+  local mgr = wxaui.wxAuiManager()
+  frame.mgr = mgr
+  
+  local winManaged = wx.wxWindow(frame, wx.wxID_ANY, wx.wxDefaultPosition, wx.wxSize(1024, 768)) 
+  frame.winManaged = winManaged
+  mgr:SetManagedWindow(winManaged);
+
+  
+  local settings = wx.wxFileConfig("RaceTraceViewer", "CKRaceTools", "")
+
+  local function settingsReadSafe(settings,what,default)
+    local cr,out = settings:Read(what,default)
+    return cr and out or default
+  end
+
+  local function settingsRestoreFramePosition(window, windowName)
+    local path = settings:GetPath()
+    settings:SetPath("/"..windowName)
+
+    local s = -1
+    s = tonumber(select(2,settings:Read("s", -1)))
+    local x = tonumber(select(2,settings:Read("x", 0)))
+    local y = tonumber(select(2,settings:Read("y", 0)))
+    local w = tonumber(select(2,settings:Read("w", 1000)))
+    local h = tonumber(select(2,settings:Read("h", 700)))
+
+    if (s ~= -1) and (s ~= 1) and (s ~= 2) then
+      local clientX, clientY, clientWidth, clientHeight
+      clientX, clientY, clientWidth, clientHeight = wx.wxClientDisplayRect()
+
+      if x < clientX then x = clientX end
+      if y < clientY then y = clientY end
+
+      if w > clientWidth then w = clientWidth end
+      if h > clientHeight then h = clientHeight end
+
+      window:SetSize(x, y, w, h)
+    elseif s == 1 then
+      window:Maximize(true)
+    end
+
+    settings:SetPath(path)
+  end
+
+  local function settingsSaveFramePosition(window, windowName)
+    local path = settings:GetPath()
+    settings:SetPath("/"..windowName)
+
+    local s = 0
+    local w, h = window:GetSizeWH()
+    local x, y = window:GetPositionXY()
+
+    if window:IsMaximized() then
+      s = 1
+    elseif window:IsIconized() then
+      s = 2
+    end
+
+    settings:Write("s", s==2 and 0 or s) -- iconized maybe - but that shouldnt be saved
+
+    if s == 0 then
+      settings:Write("x", x)
+      settings:Write("y", y)
+      settings:Write("w", w)
+      settings:Write("h", h)
+    end
+
+    settings:SetPath(path)
+  end
+  
+  frame:Connect(wx.wxEVT_DESTROY,
     function(event)
-      if (timer:IsRunning()) then timer:Stop() end
-      frame:Destroy()
+      if (event:GetEventObject():DynamicCast("wxObject") == frame:DynamicCast("wxObject")) then
+        -- You must ALWAYS UnInit() the wxAuiManager when closing
+        -- since it pushes event handlers into the frame.
+        mgr:UnInit()
+      end 
     end)
   
   frame:Connect(wx.wxID_EXIT, wx.wxEVT_COMMAND_MENU_SELECTED,
     function (event)
       frame:Close() 
-    end )
-              
-  -- open file dialog
-  frame:Connect(wx.wxID_OPEN, wx.wxEVT_COMMAND_MENU_SELECTED,
-    function (event) 
-      local fileDialog = wx.wxFileDialog( frame, "Open file", "", "","R3E trace files (*.r3t)|*.r3t",
-                                          wx.wxFD_OPEN + wx.wxFD_FILE_MUST_EXIST)
-
-      if fileDialog:ShowModal() == wx.wxID_OK then
-        traceOpenFile(fileDialog:GetPath())
-      end
-      fileDialog:Destroy()
-    end )
-  
-  -- open file dialog
-  frame:Connect(ID_MENUAPPEND, wx.wxEVT_COMMAND_MENU_SELECTED,
-    function (event) 
-      local fileDialog = wx.wxFileDialog( frame, "Append file", "", "","R3E trace files (*.r3t)|*.r3t",
-                                          wx.wxFD_OPEN + wx.wxFD_FILE_MUST_EXIST)
-
-      if fileDialog:ShowModal() == wx.wxID_OK then
-        traceAppendFile(fileDialog:GetPath())
-      end
-      fileDialog:Destroy()
     end )
 
   -- connect the selection event of the about menu item
@@ -1372,8 +1579,8 @@ local function initApp()
   local btnexport = wx.wxButton( toolsAction, ID_BTNEXPORT, "Export Sel. Props",wx.wxDefaultPosition, wx.wxSize(116,24))
   btnexport:SetToolTip("Export selected properties to .csv")
   local btnplot = wx.wxButton( toolsAction, ID_BTNPLOT, "Plot Sel. Props",wx.wxDefaultPosition, wx.wxSize(100,24))
-  local lblgrad = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Gradient:", wx.wxDefaultPosition, wx.wxSize(56,24), wx.wxALIGN_RIGHT)
-  local spngrad = wx.wxSpinCtrl(toolsAction, ID_SPNGRAD, "", wx.wxDefaultPosition, wx.wxSize(50,24))
+  local lblgrad = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Gradient (1/100s):", wx.wxDefaultPosition, wx.wxSize(96,24), wx.wxALIGN_RIGHT)
+  local spngrad = wx.wxSpinCtrl(toolsAction, ID_SPNGRAD, "", wx.wxDefaultPosition, wx.wxSize(50,24), wx.wxSP_ARROW_KEYS + wx.wxTE_PROCESS_ENTER)
   
   local lblplot = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Selector", wx.wxDefaultPosition, wx.wxSize(50,24), wx.wxALIGN_RIGHT)
   local lblvis  = wx.wxStaticText(toolsAction, wx.wxID_ANY, "Visible", wx.wxDefaultPosition, wx.wxSize(40,24), wx.wxALIGN_RIGHT)
@@ -1435,33 +1642,63 @@ local function initApp()
   sizer:Add(chkanim,  0, wx.wxLEFT,4)
   toolsAction:SetSizer(sizer)
   
-  local lapSplitter = wx.wxSplitterWindow( frame, wx.wxID_ANY )
-  frame.lapSplitter = lapSplitter
-  
-  -- Put them in a vertical sizer, with ratio 3 units for the text entry, 5 for button
-  -- and padding of 6 pixels.
   local sizer = wx.wxBoxSizer(wx.wxVERTICAL)
   sizer:Add(tools,0, wx.wxEXPAND)
-  sizer:Add(lapSplitter,1, wx.wxEXPAND)
+  sizer:Add(winManaged,1, wx.wxEXPAND)
   frame:SetSizer(sizer)
   
   -- add lap sidebar
-  local lapview = initLapView(lapSplitter)
+  local lapview = initLapView(winManaged)
   frame.lapview = lapview
   
   -- add property
-  local propSplitter = wx.wxSplitterWindow( lapSplitter, wx.wxID_ANY )
-  frame.propSplitter = propSplitter
-  
-  local propview = initPropertyView(propSplitter)
+  local propview = initPropertyView(winManaged)
   frame.propview = propview
   
-  local trackview = initTrackView(propSplitter)
+  local trackview = initTrackView(winManaged)
   frame.trackview = trackview
+
+  local function wxT(s) return s end
+
+  mgr:AddPane(lapview, wxaui.wxAuiPaneInfo():
+          Name(wxT("laps")):Caption(wxT("Laps")):
+          Left():Layer(1):BestSize(lapview:GetSize()):MinSize(wx.wxSize(100,100)):
+          CloseButton(false):MaximizeButton(true));
+        
+  mgr:AddPane(propview, wxaui.wxAuiPaneInfo():
+          Name(wxT("props")):Caption(wxT("Properties")):
+          Left():Layer(0):BestSize(propview:GetSize()):MinSize(wx.wxSize(100,100)):
+          CloseButton(false):MaximizeButton(true));
+        
+  mgr:AddPane(trackview, wxaui.wxAuiPaneInfo():
+          Name(wxT("track")):Caption(wxT("Track")):
+          Center():BestSize(trackview:GetSize()):MinSize(wx.wxSize(100,100)):
+          CloseButton(false):MaximizeButton(true));
+        
+  mgr:Update()
   
-  lapSplitter:SplitVertically(lapview,propSplitter)
-  propSplitter:SplitVertically(propview,trackview)
+  local function settingsSave()
+    settings:Write("Version", 1)
+    settings:Write("TrackWidth", gfx.widthmul)
+    settings:Write("MainManaged", mgr:SavePerspective())
+    settingsSaveFramePosition(frame, "MainFrame")
+  end
+
+  local function settingsRestore()
+    settingsRestoreFramePosition(frame, "MainFrame")
+    local layoutcur = mgr:SavePerspective()
+    local layout = settingsReadSafe(settings,"MainManaged",layoutcur)
+    if (layout ~= layoutcur) then
+      layout = layout:gsub("minw=[%-%d]+;","minw=100;"):gsub("minh=[%-%d]+;","minh=100;")
+      mgr:LoadPerspective(layout)
+    end
+    
+    gfx.widthmul = settingsReadSafe(settings,"TrackWidth", 1)
+    spnwidth:SetValue( gfx.widthmul * 10)
+  end
   
+  -- load layout
+  settingsRestore()
  
   ----------
   -- events
@@ -1523,11 +1760,17 @@ local function initApp()
   
   tools:Connect(ID_SPNWIDTH, wx.wxEVT_COMMAND_TEXT_ENTER, spinwidthEvent)
   tools:Connect(ID_SPNWIDTH, wx.wxEVT_COMMAND_SPINCTRL_UPDATED, spinwidthEvent)
+  
+  local function gradientEvent(event)
+    traceSetGradient ( spngrad:GetValue() )
+  end
+  tools:Connect(ID_SPNGRAD, wx.wxEVT_COMMAND_TEXT_ENTER, gradientEvent)
+  tools:Connect(ID_SPNGRAD, wx.wxEVT_COMMAND_SPINCTRL_UPDATED, gradientEvent)
 
   local rangeState = nil
   local function updateRangeText()
-    btnrange:SetLabel(rangeState == true and "Range End" or 
-                      rangeState == false and "Range Clear" or
+    btnrange:SetLabel(rangeState == "begin" and "Range End" or 
+                      rangeState == "end" and "Range Clear" or
                       "Range Begin")
   end
   
@@ -1607,7 +1850,7 @@ local function initApp()
       elseif( num > 1) then
         for i=1,num do
           local sel = {props={ selected.props[i] }, }
-          sel.fnaccess = r3emap.makeAccessor(sel.props)
+          sel.fnaccess = r3emap.makeAccessor(sel.props, config.viewer.convertvalues)
           
           gfx.plot = gfx.plots[i]
           setVisible(i, true)
@@ -1630,6 +1873,50 @@ local function initApp()
       end
       fileDialog:Destroy()
     end )
+  
+  frame:Connect(wx.wxID_OPEN, wx.wxEVT_COMMAND_MENU_SELECTED,
+    function (event) 
+      local fileDialog = wx.wxFileDialog( frame, "Open file", "", "","R3E trace files (*.r3t)|*.r3t",
+                                          wx.wxFD_OPEN + wx.wxFD_FILE_MUST_EXIST)
+
+      if fileDialog:ShowModal() == wx.wxID_OK then
+        traceOpenFile(fileDialog:GetPath())
+      end
+      fileDialog:Destroy()
+    end )
+  
+  frame:Connect(ID_MENUAPPEND, wx.wxEVT_COMMAND_MENU_SELECTED,
+    function (event) 
+      local fileDialog = wx.wxFileDialog( frame, "Append file", "", "","R3E trace files (*.r3t)|*.r3t",
+                                          wx.wxFD_OPEN + wx.wxFD_FILE_MUST_EXIST)
+
+      if fileDialog:ShowModal() == wx.wxID_OK then
+        traceAppendFile(fileDialog:GetPath())
+      end
+      fileDialog:Destroy()
+    end )
+
+  frame:Connect(ID_MENUEXPORT, wx.wxEVT_COMMAND_MENU_SELECTED,
+    function (event) 
+      local fileDialog = wx.wxFileDialog( frame, "Save Session as", "", "","CSV files (*.csv)|*.csv",
+                                          wx.wxFD_SAVE)
+
+      if fileDialog:ShowModal() == wx.wxID_OK then
+        traceSessionSaveCSV(fileDialog:GetPath())
+      end
+      fileDialog:Destroy()
+    end )
+  
+  -- connect the selection event of the exit menu item to an
+  -- event handler that closes the window
+  frame:Connect(ID_MAIN, wx.wxEVT_CLOSE_WINDOW,
+    function(event)
+      if (timer:IsRunning()) then timer:Stop() end
+      
+      settingsSave()
+      
+      frame:Destroy()
+    end)
   
   return frame
 end

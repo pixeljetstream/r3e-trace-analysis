@@ -277,7 +277,7 @@ local function ffiToApi(ffidef)
 end
 
 
-local properties = {}
+local propertiesVec = {}
 local propertiesRaw = {}
 do
   local r3e = require "r3e"
@@ -293,43 +293,52 @@ do
     for i,v in pairs(class.childs) do
       if (i:match("_")) then
       else
+        local name = prepend..i
         if (v.valuetype) then
           -- special case vectors
           if (not raw and (v.valuetype == "r3e.r3e_vec3_f64" or v.valuetype == "r3e.r3e_vec3_f32")) then
-            table.insert(tab,{name=prepend..i, descr=v.description, interpolate=true})
+            table.insert(tab,{name=name, descr=v.description, interpolate=true, vector=true})
           else
-            getAllProperties(tab, v.valuetype:sub(5,-1), prepend..i..".", raw)
+            getAllProperties(tab, v.valuetype:sub(5,-1), name..".", raw)
           end
         else
-          table.insert(tab,{name=prepend..i, descr=v.description, interpolate=v.description == "r3e_int32"})
+          table.insert(tab,{name=name, descr = v.description, 
+              interpolate = v.description ~= "r3e_int32", 
+              vector=false,
+              angle=(name:match("Orientation") ~= nil or i:match("Rotation") ~= nil),
+              speed=(i:match("Speed") ~= nil)})
         end
       end
     end
   end
 
 
-  getAllProperties(properties, "r3e_shared", "")
+  getAllProperties(propertiesVec, "r3e_shared", "")
   getAllProperties(propertiesRaw, "r3e_shared", "", true)
-  table.sort(properties, function(a,b) return a.name < b.name end)
+  table.sort(propertiesVec, function(a,b) return a.name < b.name end)
   table.sort(propertiesRaw, function(a,b) return a.name < b.name end)
 end
 
 local _M = {}
-function _M.getAllProperties(raw)
+function _M.getAllProperties(vector)
   local res = {}
-  local used = raw and propertiesRaw or properties
+  local used = vector and propertiesVec or propertiesRaw
   for i,v in ipairs(used) do
-    res[i] = {name=v.name,descr=v.descr,interpolate=v.interpolate}
+    res[i] = {name=v.name, descr=v.descr, interpolate=v.interpolate, angle=v.angle, speed=v.speed, vector=v.vector}
   end
   return res
 end
-function _M.makeAccessor(tab)
+function _M.makeAccessor(tab, convert)
   
   local str = "local results, state = ...\n"
   for i,v in ipairs(tab) do
     local k = v.name
-    if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
+    if (v.vector) then
       str = str.."results["..i.."] = {state."..k..".X, state."..k..".Y,state."..k..".Z,}\n"
+    elseif (v.speed and convert) then
+      str = str.."results["..i.."] = (state."..k..") * 3.6\n"
+    elseif (v.angle and convert) then
+      str = str.."results["..i.."] = math.deg(state."..k..")\n"
     else
       str = str.."results["..i.."] = state."..k.."\n"
     end
@@ -360,11 +369,16 @@ function _M.makeInterpolator()
   return fn
 end
 
-local accessAll = _M.makeAccessor(properties)
+local accessAll     = _M.makeAccessor(propertiesRaw,false)
+local accessAllConv = _M.makeAccessor(propertiesRaw,true)
 
-function _M.getAll(state)
+function _M.getAll(state,convert)
   local results = {}
-  accessAll(results, state)
+  if (convert) then
+    accessAllConv(results, state)
+  else
+    accessAll(results, state)
+  end
   
   local tab = {}
   for i,v in ipairs(properties) do
@@ -384,7 +398,7 @@ function _M.printResults(props, results)
 
   for i,v in ipairs(props) do
     local res = results[i]
-    if (v.descr == "r3e_vec3_f64" or v.descr == "r3e_vec3_f32") then
+    if (v.vector) then
       local v3length = math.sqrt(res[1]*res[1] + res[2]*res[2] + res[3]*res[3])
       print(v.descr,v.name, "{"..table.concat(res,",").."}", v3length)
     else
@@ -398,7 +412,7 @@ function _M.printAll(state)
   local results = {}
   accessAll(results, state)
   
-  _M.printResults(properties,results)
+  _M.printResults(propertiesRaw,results)
 end
 
 return _M

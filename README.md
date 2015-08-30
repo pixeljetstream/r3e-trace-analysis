@@ -73,6 +73,13 @@ Positive values means the properties increased in the given gradient time span (
 The default settings are stored in "config.lua". Create "config-user.lua" to override those.
 
 ### History
+* 30.08.2015:
+ * Settings stored in ini file (window layout...) <User>/AppData/RaceTraceViewer.ini
+ * Customizable UI
+ * New file menu entry to store entire session with all properties as csv
+ * No longer print values as vectors, better to work with X,Y,Z properties
+ * "config.viewer.convertvalues" (default:true) to convert radians to degrees and m/s to km/h
+ * Bug fixes (pan, range)
 * 15.08.2015:
  * Shaders using OpenGL 3.3 instead of 4.3 now
  * Added pan (drag left) and zoom (drag right)
