@@ -66,10 +66,23 @@ function _M.loadTrace(filename)
     ffi.copy(out, bytes, sz)
   end
   
+  local function readIntoStrided(out, instride, outstride, elements)
+    if (instride == outstride) then
+      return readInto(out, instride * elements)
+    else
+      --local ptr = ffi.cast(out, "char*")
+      for i=0,elements-1 do
+        local bytes = file:read(instride)
+        ffi.copy(out + i, bytes, instride)
+      end
+    end
+    
+  end
+  
   local header = ffi.new("r3e_trace_header")
   readInto(header, ffi.sizeof("r3e_trace_header"))
   assert(header.version   == R3E_TRACE_VERSION, "wrong trace file version")
-  assert(header.frameSize == r3e.SHARED_SIZE, "wrong r3e data version")
+  assert(header.frameSize <= r3e.SHARED_SIZE,   "wrong r3e data version")
   
   local laps     = header.laps
   local frames   = header.frames
@@ -84,7 +97,8 @@ function _M.loadTrace(filename)
   readInto(contentTimes, ffi.sizeof("double") * frames)
   
   local content   = ffi.new(r3e.SHARED_TYPE_NAME.."[?]", frames)
-  readInto(content, r3e.SHARED_SIZE * frames)
+  ffi.fill(content,  r3e.SHARED_SIZE * frames)
+  readIntoStrided(content, header.frameSize, r3e.SHARED_SIZE, frames)
   
   local lapData = {}
   local posMin = {100000,100000,100000}
