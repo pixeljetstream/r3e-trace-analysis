@@ -110,7 +110,8 @@ local function ffiToApi(ffidef)
           for name,rest in names:gmatch("([_%w]+)([^,]*)") do
             rest = rest and rest:gsub("%s","") or ""
             local what = typ..(rest:gsub("%b[]","*"))
-            table.insert(values,{NAME=name, DESCR=(typ..rest..(val and (" = "..val) or "")), TYPE = what,})
+            local descr = (typ..rest..(val and (" = "..val) or "")):gsub("%s*$","")
+            table.insert(values,{NAME=name, DESCR=descr, TYPE = what,})
           end
         end
       elseif(typedef) then
@@ -302,8 +303,12 @@ do
             getAllProperties(tab, v.valuetype:sub(5,-1), name..".", raw)
           end
         else
+          if (name:match("TrackID")) then
+            print(v.description)
+          end
+          
           table.insert(tab,{name=name, descr = v.description, 
-              interpolate = v.description ~= "r3e_int32", 
+              interpolate = v.description:match("r3e_int32") == nil, 
               vector=false,
               angle=(name:match("Orientation") ~= nil or i:match("Rotation") ~= nil),
               speed=(i:match("Speed") ~= nil)})
