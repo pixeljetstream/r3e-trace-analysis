@@ -4,17 +4,21 @@ local r3etrace     = require "r3etrace"
 local utils        = require "utils"
 
 ----------------------------------
-local stateLast    = ffi.new( r3e.SHARED_TYPE )
-local state        = ffi.new( r3e.SHARED_TYPE )
-
 local config       = {record={}, replay={}, viewer={}}
 
 utils.loadInto("config.lua", config)
 utils.loadInto("config-user.lua", config)
 
-local pollrate = config.record.pollrate or 10
+local fulldata    = config.record.fulldata
+local pollrate    = config.record.pollrate or 10
 local onlydriving = config.record.onlydriving == nil or config.record.onlydriving
 local saveonpause = config.record.saveonpause and onlydriving
+
+local FRAMESIZE = fulldata and r3e.SHARED_SIZE_FULL or r3e.SHARED_SIZE
+local FRAMENAME = fulldata and r3e.SHARED_TYPE_NAME_FULL or r3e.SHARED_TYPE_NAME
+
+local stateLast    = ffi.new( fulldata and r3e.SHARED_TYPE_FULL or r3e.SHARED_TYPE )
+local state        = ffi.new( fulldata and r3e.SHARED_TYPE_FULL or r3e.SHARED_TYPE )
 
 ----------------------------------
 
@@ -27,7 +31,7 @@ local diff = 0
 local lapBegins = {}
 
 local function allocateChunk()
-  local mem = ffi.new(r3e.SHARED_TYPE_NAME.."[?]", chunkFrames)
+  local mem = ffi.new(FRAMENAME.."[?]", chunkFrames)
   local memTime = ffi.new("double[?]", chunkFrames)
   chunksMem[chunkCount] = {mem,memTime}
   
@@ -60,7 +64,7 @@ local function record(state, stateLast, time)
   end
   
   memTime[f] = time
-  ffi.copy(dst, state, r3e.SHARED_SIZE)
+  ffi.copy(dst, state, FRAMESIZE)
   
   if (frames > 0) then
     diff = diff + (state.Player.GameSimulationTime - stateLast.Player.GameSimulationTime)
@@ -76,7 +80,7 @@ local function saveTrace(filename)
   local avgpollrate = math.max(1,math.floor(diff*1000/(frames-1)))
  
   local file = io.open(filename, "wb")
-  local str = r3etrace.createHeader(frames, avgpollrate, lapBegins)
+  local str = r3etrace.createHeader(frames, avgpollrate, lapBegins, FRAMESIZE)
   file:write(str)
   
   local numc = math.floor(frames/chunkFrames)
@@ -85,7 +89,7 @@ local function saveTrace(filename)
   
   -- first times
   -- then shared
-  local sizes = {r3e.SHARED_SIZE, ffi.sizeof("double")}
+  local sizes = {FRAMESIZE, ffi.sizeof("double")}
   for i=2,1,-1 do
     -- full chunks
     for c=0,numc-1 do
@@ -171,7 +175,7 @@ function update()
   end
   
   if (not mapping) then
-    mapping = r3e.createMapping()
+    mapping = r3e.createMapping(false,fulldata)
     mapping:readData( stateLast )
   end
   

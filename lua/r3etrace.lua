@@ -1,6 +1,8 @@
 local ffi = require "ffi"
 local r3e = require "r3e"
 local r3emap = require "r3emap"
+local r3emapfull = r3emap.init(true)
+local r3emapbase = r3emap.init(false)
 
 local R3E_TRACE_VERSION = 1
 
@@ -16,10 +18,10 @@ typedef struct  {
 
 local _M = {}
   
-function _M.createHeader(frames, pollrate, lapBegins)
+function _M.createHeader(frames, pollrate, lapBegins, frameSize)
   local header = ffi.new("r3e_trace_header")
   header.version   = R3E_TRACE_VERSION
-  header.frameSize = r3e.SHARED_SIZE
+  header.frameSize = frameSize
   header.frames    = frames
   header.pollrate  = pollrate
   header.laps      = #lapBegins
@@ -36,24 +38,10 @@ function _M.createHeader(frames, pollrate, lapBegins)
   return str
 end
 
-local interpolator
-do
-  local function lerp(a, b, t) return a * (1-t) + b * t  end
-  
-  -- create interpolator
-  interpolator = function(stateOut, stateA, stateB, fracc)
-    ffi.copy(stateOut, stateA, r3e.SHARED_SIZE)
+local interpolatorBase  = r3emapbase.makeInterpolator()
+local interpolatorFull  = r3emapfull.makeInterpolator()
 
-    -- interpolate at least time
-    stateOut.Player.GameSimulationTime = lerp( stateA.Player.GameSimulationTime, stateB.Player.GameSimulationTime, fracc)
-  end
-  
-  -- use full interpolator
-  interpolator = r3emap.makeInterpolator()
-end
-
-
-function _M.loadTrace(filename)
+function _M.loadTrace(filename, forcefulldata)
   -- read header
   print ("loading", filename)
   local file = io.open(filename, "rb")
@@ -68,7 +56,7 @@ function _M.loadTrace(filename)
   
   local function readIntoStrided(out, instride, outstride, elements)
     if (instride == outstride) then
-      return readInto(out, instride * elements)
+      readInto(out, instride * elements)
     else
       --local ptr = ffi.cast(out, "char*")
       for i=0,elements-1 do
@@ -82,7 +70,14 @@ function _M.loadTrace(filename)
   local header = ffi.new("r3e_trace_header")
   readInto(header, ffi.sizeof("r3e_trace_header"))
   assert(header.version   == R3E_TRACE_VERSION, "wrong trace file version")
-  assert(header.frameSize <= r3e.SHARED_SIZE,   "wrong r3e data version")
+  assert(header.frameSize <= r3e.SHARED_SIZE or 
+         header.frameSize == r3e.SHARED_SIZE_FULL, "wrong r3e data version")
+  
+  local fulldata     = forcefulldata or header.frameSize == r3e.SHARED_SIZE_FULL
+  fulldata = fulldata and true or false
+  local worksize     = fulldata and r3e.SHARED_SIZE_FULL      or r3e.SHARED_SIZE
+  local workname     = fulldata and r3e.SHARED_TYPE_NAME_FULL or r3e.SHARED_TYPE_NAME
+  local interpolator = fulldata and interpolatorFull          or interpolatorBase
   
   local laps     = header.laps
   local frames   = header.frames
@@ -91,14 +86,14 @@ function _M.loadTrace(filename)
   local lapsraw = ffi.new("int[?]", laps)
   readInto(lapsraw, ffi.sizeof("int") * laps)
   
-  print("frameSize, frames, laps, pollrate",header.frameSize, header.frames, header.laps, pollrate)
+  print("frameSize, frames, laps, pollrate, worksize, workname",header.frameSize, header.frames, header.laps, pollrate, worksize, workname)
   
   local contentTimes   = ffi.new("double[?]", frames)
   readInto(contentTimes, ffi.sizeof("double") * frames)
   
-  local content   = ffi.new(r3e.SHARED_TYPE_NAME.."[?]", frames)
-  ffi.fill(content,  r3e.SHARED_SIZE * frames)
-  readIntoStrided(content, header.frameSize, r3e.SHARED_SIZE, frames)
+  local content   = ffi.new(workname.."[?]", frames)
+  ffi.fill(content,  worksize * frames)
+  readIntoStrided(content, header.frameSize, worksize, frames)
   
   local lapData = {}
   local posMin = {100000,100000,100000}
@@ -121,12 +116,10 @@ function _M.loadTrace(filename)
     local lastFrame
     local lapValid = true
     
-    
-    
     for i=0,frames-1 do
       local state     = content + i
       
-      timeValid = state.LapTimeCurrent >= 0
+      local timeValid = state.LapTimeCurrent >= 0
       if (state.CompletedLaps ~= lastLap)
       then
         if (lastTime) then
@@ -151,6 +144,8 @@ function _M.loadTrace(filename)
   local duration = contentTimes[frames-1] - begin
   
   local trace = {
+    fulldata = fulldata,
+    header = header,
     filename = filename,
     begin  = begin,
     duration = duration,
@@ -184,19 +179,19 @@ function _M.loadTrace(filename)
   
   function trace:getFrame(state, time, startidx)
     local idx = trace:getFrameIdx(time, startidx)
-    ffi.copy(state, content + idx, r3e.SHARED_SIZE)
+    ffi.copy(state, content + idx, worksize)
     return idx
   end
   
   function trace:getFrameRaw(state, idx)
     local idx = math.max(math.min(idx, frames-1),0)
-    ffi.copy(state, content + idx, r3e.SHARED_SIZE)
+    ffi.copy(state, content + idx, worksize)
   end
   
   function trace:getInterpolatedFrame(state, time, startidx)
     local idx = trace:getFrameIdx(time, startidx)
     if (idx == frames-1) then
-      ffi.copy(state, content + idx, r3e.SHARED_SIZE)
+      ffi.copy(state, content + idx, worksize)
     else
       local stateA = content + idx
       local stateB = content + idx + 1

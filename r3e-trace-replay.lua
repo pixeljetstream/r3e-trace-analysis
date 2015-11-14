@@ -3,6 +3,7 @@ local r3e          = require "r3e"
 local r3etrace     = require "r3etrace"
 local utils        = require "utils"
 local r3emap       = require "r3emap"
+r3emap = r3map.init(true)
 
 ----------------------------------
 local state        = ffi.new( r3e.SHARED_TYPE )
@@ -18,6 +19,8 @@ local traceFileName = args[2] or "trace_150712_170141.r3t"
 
 local trace = r3etrace.loadTrace(traceFileName)
 
+assert(trace.header.frameSize == r3e.SHARED_SIZE_FULL, "replay only supports fulldata recordings")
+
 local timebased    = config.replay.timebased 
 local dumpframes   = config.replay.dumpframes or 120
 local dumpinterval = config.replay.dumpinterval or 2
@@ -27,21 +30,25 @@ local playrate     = config.replay.playrate or math.max(1,math.floor(trace.pollr
 
 ----------------------------------
 
-local fnPrint = r3emap.printAll
-if (config.replay.dumpfilter) then
+
+do
   -- get properties
-  local allprops = r3emap.getAllProperties()
+  local allprops = r3emap.getAllProperties(false, true)
   local lkprops = {}
   for i,v in ipairs(allprops) do
     lkprops[v[1]] = i
   end
   -- find 
   local used = {}
-  for i,v in ipairs(config.replay.dumpfilter) do
-    local idx = lkprops[v] 
-    if (idx) then
-      table.insert(used, allprops[idx])
+  if (config.replay.dumpfilter) then
+    for i,v in ipairs(config.replay.dumpfilter) do
+      local idx = lkprops[v] 
+      if (idx) then
+        table.insert(used, allprops[idx])
+      end
     end
+  else
+    used = allprops
   end
   
   if (#used > 0) then
@@ -57,13 +64,12 @@ if (config.replay.dumpfilter) then
     -- dummy func
     fnPrint = function(state) end
   end
-  
 end
 
 ----------------------------------
 
 -- write only mapping
-local mapping = r3e.createMapping(true)
+local mapping = r3e.createMapping(true, true)
 
 print("replaying",traceFileName)
 

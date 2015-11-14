@@ -277,6 +277,9 @@ local function ffiToApi(ffidef)
   return str
 end
 
+local _C = {}
+
+function _C.init(fulldata) 
 
 local propertiesVec = {}
 local propertiesRaw = {}
@@ -295,20 +298,25 @@ do
       if (i:match("_")) then
       else
         local name = prepend..i
+        local arraysize = v.description:match("%b[]")
+        arraysize = arraysize and tonumber(arraysize:match("%d+"))
+        
         if (v.valuetype) then
           -- special case vectors
           if (not raw and (v.valuetype == "r3e.r3e_vec3_f64" or v.valuetype == "r3e.r3e_vec3_f32")) then
             table.insert(tab,{name=name, descr=v.description, interpolate=true, vector=true})
+          -- check arrays
+          elseif (arraysize) then
+            for i=0,arraysize-1 do
+              getAllProperties(tab, v.valuetype:sub(5,-1), name..string.format("[%.3d].",i), raw)
+            end
           else
             getAllProperties(tab, v.valuetype:sub(5,-1), name..".", raw)
           end
         else
-          if (name:match("TrackID")) then
-            print(v.description)
-          end
-          
           table.insert(tab,{name=name, descr = v.description, 
               interpolate = v.description:match("r3e_int32") == nil, 
+              text=v.description:match("r3e_uchar8") == nil and arraysize,
               vector=false,
               angle=(name:match("Orientation") ~= nil or i:match("Rotation") ~= nil),
               speed=(i:match("Speed") ~= nil)})
@@ -317,9 +325,9 @@ do
     end
   end
 
-
-  getAllProperties(propertiesVec, "r3e_shared", "")
-  getAllProperties(propertiesRaw, "r3e_shared", "", true)
+  local typename = fulldata and r3e.SHARED_TYPE_NAME_FULL or r3e.SHARED_TYPE_NAME
+  getAllProperties(propertiesVec, typename, "")
+  getAllProperties(propertiesRaw, typename, "", true)
   table.sort(propertiesVec, function(a,b) return a.name < b.name end)
   table.sort(propertiesRaw, function(a,b) return a.name < b.name end)
 end
@@ -374,25 +382,6 @@ function _M.makeInterpolator()
   return fn
 end
 
-local accessAll     = _M.makeAccessor(propertiesRaw,false)
-local accessAllConv = _M.makeAccessor(propertiesRaw,true)
-
-function _M.getAll(state,convert)
-  local results = {}
-  if (convert) then
-    accessAllConv(results, state)
-  else
-    accessAll(results, state)
-  end
-  
-  local tab = {}
-  for i,v in ipairs(properties) do
-    tab[v.name] = results[i]
-  end
-  
-  return tab
-end
-
 function _M.printResults(props, results)
   local padded = {
                -- "r3e_vec3_f64"
@@ -413,11 +402,7 @@ function _M.printResults(props, results)
   end
 end
 
-function _M.printAll(state)
-  local results = {}
-  accessAll(results, state)
-  
-  _M.printResults(propertiesRaw,results)
+return _M
 end
 
-return _M
+return _C

@@ -14,6 +14,11 @@ record.onlydriving = true
 -- useful for analysis while game is running
 record.saveonpause = false
 
+-- removes the "all driver" data, reducing the filesize a lot
+-- this option set to false is preferred for telemetry usage
+-- "true" is meant for debugging other tools
+record.fulldata = false
+
 -------------------------------------------
 
 -- time delay in milliseconds
@@ -52,3 +57,7 @@ viewer.animationremoveslabel = false
 
 -- use conversions (m/s to km/h, radians to degress)
 viewer.convertvalues = true
+
+-- run viewer in fulldata mode, this allows loading fulldata traces, 
+-- otherwise they will be rejected
+viewer.fulldata = false

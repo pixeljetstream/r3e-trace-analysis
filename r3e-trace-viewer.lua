@@ -6,6 +6,7 @@ local utils = require "utils"
 local r3e = require "r3e"
 local r3etrace = require "r3etrace"
 local r3emap   = require "r3emap"
+
 local math3d   = require "math3d"
 local v3,v4,m4 = math3d.namespaces.v3,math3d.namespaces.v4,math3d.namespaces.m4
 
@@ -15,11 +16,16 @@ CONFIG = config
 utils.loadInto("config.lua", config)
 utils.loadInto("config-user.lua", config)
 
+local fulldata = config.viewer.fulldata
+
+r3emap   = r3emap.init(fulldata)
+
 local args = _ARGS or {...}
 local APP_NAME  = "R3E Trace Viewer"
 local SLIDER_RES = 2048
 local AVG_RES    = 2048
 local MAX_PLOTS  = 4
+local SHARED_TYPE = fulldata and r3e.SHARED_TYPE_FULL or r3e.SHARED_TYPE
 
 local app
 local function reportStatus(text)
@@ -58,9 +64,9 @@ local function computeGradient(prop, resPrev, resNext)
 end
 
 local function getSampledData(trace, lap, numSamples, times, pos, gradient, selected, outputs)
-  local state     = ffi.new( r3e.SHARED_TYPE )
-  local statePrev = ffi.new( r3e.SHARED_TYPE )
-  local stateNext = ffi.new( r3e.SHARED_TYPE )
+  local state     = ffi.new( SHARED_TYPE )
+  local statePrev = ffi.new( SHARED_TYPE )
+  local stateNext = ffi.new( SHARED_TYPE )
   
   local lap = trace.lapData[lap]
   
@@ -164,12 +170,12 @@ local function computeAllLapStats(trace)
     local avg     = {}
     
     for i=1,num do
-      minmax[i]  = {10000000,-1000000}
+      minmax[i]  = props[i].text and {0,0} or {10000000,-1000000}
       avg[i]     = 0
     end
     
     local numFrames = v.frameCount
-    local frameEnd  = v.frameBegin + v.frameCount
+    local frameEnd  = v.frameBegin + v.frameCount - 1
     
     for f=v.frameBegin,frameEnd do
       local state = trace.content + f
@@ -291,9 +297,9 @@ local active = {
   filename = nil,
   lap = 0,
   time = 0,
-  state = ffi.new( r3e.SHARED_TYPE ),
-  statePrev = ffi.new( r3e.SHARED_TYPE ),
-  stateNext = ffi.new( r3e.SHARED_TYPE ),
+  state     = ffi.new( SHARED_TYPE ),
+  statePrev = ffi.new( SHARED_TYPE ),
+  stateNext = ffi.new( SHARED_TYPE ),
   lapData = nil,
   trace = nil,
   gradient = 0,
@@ -350,6 +356,10 @@ local function traceOpenFile(fileName)
   if not fileName then return end
   
   local trace = r3etrace.loadTrace(fileName)
+  
+  if (trace and trace.fulldata ~= fulldata) then
+    return reportStatus("load failed, fulldata state in file must match viewer config")
+  end
   
   if (trace) then
     app:SetTitle(APP_NAME.." - "..fileName)

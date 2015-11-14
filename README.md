@@ -12,20 +12,26 @@ Records all [shared memory](https://github.com/sector3studios/r3e-api) data of e
 Start before running R3E, the tool terminates itself after R3E was closed.
 
 Allows recording of the full session (for app developers), or only frames when driving (intended for telemetry analysis). 
+Can record full data set of what R3E exposes (for app developers), or reduced set that is related to the player (telemetry).
 
 ### **RRRE.exe** 
 
 Allows you to replay a trace, useful for debugging tools that also make use of the shared memory
 bridge of R3E. Frame- or time-based replaying is supported. The state values get interpolated.
 
+Uses the r3e-trace-replay.lua for the implementation
+
 * Currently the replay rate is ~10 milliseconds
 * All float values are linearly interpolated
+* Only supports traces recorded with "record.fulldata" set to "true" (the default for this setting is false!)
 
 ### **r3e-trace-viewer.exe**
 
 ![ui](https://github.com/pixeljetstream/r3e-trace-analysis/blob/master/doc/ui.png)
 
-A tool to open a trace file and inspect all data. Allows to browse through individual laps recorded within the session. Double-click a lap to make it active. Laps with "invalid" times (shortcuts...) are in brackets "()". The current selected lap is marked with "|||".
+A tool to open a trace file and inspect all data. By default the viewer will only support traces with the reduced data set useful for telemetry.
+
+Allows to browse through individual laps recorded within the session. Double-click a lap to make it active. Laps with "invalid" times (shortcuts...) are in brackets "()". The current selected lap is marked with "|||".
 
 The current lap will be rendered in the track-view. The first valid lap of a file is drawn as fine line on top, as well as a marker with the current position.
 
@@ -72,7 +78,12 @@ Positive values means the properties increased in the given gradient time span (
 
 The default settings are stored in "config.lua". Create "config-user.lua" to override those.
 
+App developers should set both ```viewer.fulldata``` and ```record.fulldata``` to true.
+
 ### History
+* 14.11.2015:
+ * Updated to latest r3e shared memory 
+ * Added "config.record.fulldata" and "config.viewer.fulldata" default off, for app developers to do full data tracing
 * 30.08.2015:
  * Settings stored in ini file (window layout...) User/AppData/RaceTraceViewer.ini
  * Customizable UI
