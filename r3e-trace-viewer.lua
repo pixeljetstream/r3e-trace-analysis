@@ -54,6 +54,7 @@ end
 
 local anglethresh = config.viewer.convertvalues and 180 or math.pi
 local function computeGradient(prop, resPrev, resNext)
+  if (prop.nonumber) then return 0 end
   if (prop.angle) then
     if (math.abs(resNext-resPrev) > anglethresh) then
       resNext = resNext + (resNext < 0 and (anglethresh*2) or 0)
@@ -121,10 +122,9 @@ local function getSampledData(trace, lap, numSamples, times, pos, gradient, sele
       else
         selected.fnaccess(results, state)
         for i=1,num do
-          local v = selected.props[i]
-          local res = results[i]
+          local res = selected.props[i].nonumber and 0 or results[i]
           outputs[i][n] = res
-          checkMinMax(i,res)
+          checkMinMax(i, res)
         end
       end
     end
@@ -170,7 +170,7 @@ local function computeAllLapStats(trace)
     local avg     = {}
     
     for i=1,num do
-      minmax[i]  = props[i].text and {0,0} or {10000000,-1000000}
+      minmax[i]  = {10000000,-1000000}
       avg[i]     = 0
     end
     
@@ -181,7 +181,7 @@ local function computeAllLapStats(trace)
       local state = trace.content + f
       fnaccess(results,state)
       for i=1,num do
-        local res = results[i]
+        local res = props[i].nonumber and 0 or results[i]
         minmax[i][1] = math.min(minmax[i][1], res)
         minmax[i][2] = math.max(minmax[i][2], res)
         avg[i]       = avg[i] + res

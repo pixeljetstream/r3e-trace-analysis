@@ -283,7 +283,7 @@ typedef struct
 
 typedef struct
 {
-    r3e_u8char  _Name[64];
+    r3e_u8char  Name[64];
     r3e_int32   CarNumber;
     r3e_int32   ClassID;
     r3e_int32   ModelID;
@@ -752,7 +752,7 @@ local _M = {
     DQ = 5,
   },
   
-  PitStatus = {
+  PitstopStatus = {
     Unavailable = -1,
     Unserved = 0,
     Served = 1,

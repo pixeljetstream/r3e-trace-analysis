@@ -14,7 +14,7 @@ local pollrate    = config.record.pollrate or 10
 local onlydriving = config.record.onlydriving == nil or config.record.onlydriving
 local saveonpause = config.record.saveonpause and onlydriving
 
-local FRAMESIZE = fulldata and r3e.SHARED_SIZE_FULL or r3e.SHARED_SIZE
+local FRAMESIZE = fulldata and r3e.SHARED_SIZE_FULL      or r3e.SHARED_SIZE
 local FRAMENAME = fulldata and r3e.SHARED_TYPE_NAME_FULL or r3e.SHARED_TYPE_NAME
 
 local stateLast    = ffi.new( fulldata and r3e.SHARED_TYPE_FULL or r3e.SHARED_TYPE )

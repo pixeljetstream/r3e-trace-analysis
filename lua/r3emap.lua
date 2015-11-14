@@ -314,12 +314,19 @@ do
             getAllProperties(tab, v.valuetype:sub(5,-1), name..".", raw)
           end
         else
-          table.insert(tab,{name=name, descr = v.description, 
-              interpolate = v.description:match("r3e_int32") == nil, 
-              text=v.description:match("r3e_uchar8") == nil and arraysize,
-              vector=false,
-              angle=(name:match("Orientation") ~= nil or i:match("Rotation") ~= nil),
-              speed=(i:match("Speed") ~= nil)})
+          local text     = v.description:match("r3e_u8char")  ~= nil and arraysize
+          local nonumber = text and true or false
+          
+          table.insert(tab,{
+              name        = name, 
+              descr       = v.description, 
+              nonumber    = nonumber,
+              interpolate = v.description:match("r3e_float32") ~= nil or v.description:match("r3e_float64") ~= nil, 
+              text        = text,
+              vector      = false,
+              angle       = (name:match("Orientation") ~= nil or i:match("Rotation") ~= nil),
+              speed       = (i:match("Speed") ~= nil)
+              })
         end
       end
     end
@@ -337,13 +344,18 @@ function _M.getAllProperties(vector)
   local res = {}
   local used = vector and propertiesVec or propertiesRaw
   for i,v in ipairs(used) do
-    res[i] = {name=v.name, descr=v.descr, interpolate=v.interpolate, angle=v.angle, speed=v.speed, vector=v.vector}
+    local cpy = {}
+    for n,k in pairs(v) do
+      cpy[n] = k
+    end
+    res[i] = cpy
   end
   return res
 end
-function _M.makeAccessor(tab, convert)
+function _M.makeAccessor(tab, convert, nonumber)
   
-  local str = "local results, state = ...\n"
+  local str = 'local ffi = require "ffi"\n'
+  str = str.. "return function(results, state)\n"
   for i,v in ipairs(tab) do
     local k = v.name
     if (v.vector) then
@@ -352,15 +364,18 @@ function _M.makeAccessor(tab, convert)
       str = str.."results["..i.."] = (state."..k..") * 3.6\n"
     elseif (v.angle and convert) then
       str = str.."results["..i.."] = math.deg(state."..k..")\n"
+    elseif (v.text) then
+      str = str.."results["..i.."] = "..(nonumber and "ffi.string(state."..k..")\n" or "0\n")
     else
       str = str.."results["..i.."] = state."..k.."\n"
     end
   end
-  
+  str = str.."end\n"
+
   local fn,err = loadstring(str)
   assert(fn,err)
   
-  return fn
+  return fn()
 end
 
 function _M.makeInterpolator()
