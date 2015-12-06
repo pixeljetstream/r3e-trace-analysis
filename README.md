@@ -81,6 +81,9 @@ The default settings are stored in "config.lua". Create "config-user.lua" to ove
 App developers should set both ```viewer.fulldata``` and ```record.fulldata``` to true.
 
 ### History
+* 6.12.2015:
+ * Refactored viewer code to split the giant file into subsystems
+ * Minor bugfix when selecting a property after a comparison was done before
 * 14.11.2015:
  * Updated to latest r3e shared memory 
  * Added "config.record.fulldata" and "config.viewer.fulldata" default off, for app developers to do full data tracing
