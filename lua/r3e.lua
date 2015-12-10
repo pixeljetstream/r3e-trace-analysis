@@ -296,6 +296,15 @@ typedef struct
 
 typedef struct
 {
+    r3e_int32 Available;
+    r3e_int32 Engaged;
+    r3e_int32 AmountLeft;
+    r3e_float32 EngagedTimeLeft;
+    r3e_float32 WaitTimeLeft;
+} r3e_push_to_pass;
+
+typedef struct
+{
     r3e_driver_info   DriverInfo;
     r3e_int32         FinishStatus;
     r3e_int32         Place;
@@ -554,6 +563,8 @@ local R3E_DEFS_PLAYER1 =
 
     // Info about track and layout
     r3e_track_info TrackInfo;
+    
+    r3e_push_to_pass  PushToPass;
 ]]
 
 
