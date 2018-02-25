@@ -94,9 +94,10 @@ function helpers.getSampledData(trace, lap, numSamples, times, pos, gradient, se
     end
     -- swizzle pos
     if (pos) then
-      pos[n*4+0] = state.Player.Position.X
-      pos[n*4+1] = state.Player.Position.Z
-      pos[n*4+2] = state.Player.Position.Y
+      local x,y,z = r3emap.getPosition(state)
+      pos[n*4+0] = x
+      pos[n*4+1] = y
+      pos[n*4+2] = z
       pos[n*4+3] = 1
     end
     if (num > 0) then
@@ -243,14 +244,14 @@ function helpers.saveSessionCSV(traces, filename)
     local frames = trace.frames
     local content = trace.content
     
-    local baseTime = content[0].Player.GameSimulationTime
-    local delta    = content[1].Player.GameSimulationTime - baseTime
+    local baseTime = r3emap.getTime(content[0])
+    local delta    = r3emap.getTime(content[1])- baseTime
     
     local time = 0
     for n=0,frames-1 do
       local state = content + n
       fnaccess(results,state)
-      time = state.Player.GameSimulationTime - baseTime + lastTime
+      time = r3emap.getTime(state) - baseTime + lastTime
       f:write( tostring(time) )
       f:write(", ")
       for i=1,num do

@@ -1,5 +1,6 @@
 local ffi          = require "ffi"
 local r3e          = require "r3e"
+local r3emap       = require "r3emap"
 local r3etrace     = require "r3etrace"
 local utils        = require "utils"
 
@@ -55,11 +56,11 @@ local function record(state, stateLast, time)
   local dst = mem + f
   
   -- log lap begins
-  local timeValid = state.LapTimeCurrent >= 0
-  if ((state.CompletedLaps <= 0 and timeValid ~= lastTimeValid) or state.CompletedLaps ~= lastLap)
+  local timeValid = state.lap_time_current_self >= 0
+  if ((state.completed_laps <= 0 and timeValid ~= lastTimeValid) or state.completed_laps ~= lastLap)
   then
     table.insert(lapBegins, frames)
-    lastLap       = state.CompletedLaps
+    lastLap       = state.completed_laps
     lastTimeValid = timeValid
   end
   
@@ -67,7 +68,7 @@ local function record(state, stateLast, time)
   ffi.copy(dst, state, FRAMESIZE)
   
   if (frames > 0) then
-    diff = diff + (state.Player.GameSimulationTime - stateLast.Player.GameSimulationTime)
+    diff = diff + (r3emap.getTime(state) - r3emap.getTime(stateLast))
   end
   
   frames = frames + 1
@@ -113,8 +114,8 @@ if (true) then
   local begin = os.clock()
   for i=0,9 do
     local time = os.clock()-begin
-    state.Player.GameSimulationTime = time
-    state.CompletedLaps = math.floor(i/2)
+    state.player.game_simulation_time = time
+    state.completed_laps = math.floor(i/2)
     
     record(state, stateLast, time)
     state,stateLast = stateLast, state
@@ -127,7 +128,7 @@ if (true) then
   print(test.frames)
   
   test:getInterpolatedFrame( state, 0.045)
-  print(state.Player.GameSimulationTime)
+  print(state.player.game_simulation_time)
   
   print "runtest completed"
 end
@@ -185,15 +186,15 @@ function update()
   -- if need new session (restart keeps sessionType only resets gametime
   -- main menu is Session.Unavailable
   
-  if (state.SessionType == r3e.Session.Unavailable or 
-      state.SessionType ~= lastSessionType or
-      state.Player.GameSimulationTime < lastGameSimTime) 
+  if (state.session_type == r3e.Session.Unavailable or 
+      state.session_type ~= lastSessionType or
+      state.player.game_simulation_time < lastGameSimTime) 
   then
     if (inSession) then
       endSession()
       inSession = false
     end
-    if (state.SessionType == r3e.Session.Unavailable) then
+    if (state.session_type == r3e.Session.Unavailable) then
       return
     end
   end
@@ -210,14 +211,14 @@ function update()
     -- detect paused or not really driving ...
     -- if onlydriving is false we capture all events even if AI drives or game is paused...
     if (not onlydriving or 
-      ( state.ControlType == r3e.Control.Player and
-        state.Player.GameSimulationTime > 0 and       
-        lastGameSimTime ~= state.Player.GameSimulationTime --paused
+      ( state.control_type == r3e.Control.Player and
+        state.player.game_simulation_time > 0 and       
+        lastGameSimTime ~= state.player.game_simulation_time --paused
       ))
     then
       if (inPause) then print "recording..." end
       inPause = false
-      local time = onlydriving and state.Player.GameSimulationTime or (os.clock()-timeBegin)
+      local time = onlydriving and state.player.game_simulation_time or (os.clock()-timeBegin)
       record(state, stateLast, time)
     else
       if (not inPause) then 
@@ -231,8 +232,8 @@ function update()
     end
   end
   
-  lastGameSimTime = state.Player.GameSimulationTime
-  lastSessionType = state.SessionType
+  lastGameSimTime = state.player.game_simulation_time
+  lastSessionType = state.session_type
   
   -- swap
   state,stateLast = stateLast,state

@@ -335,7 +335,7 @@ end
 sys.registerHandler(sys.events.lap, lapUpdate)
 
 local function timeUpdate(trace, lap, time, state)
-  gfx.pos = v3.float(state.Player.Position.X,state.Player.Position.Z,state.Player.Position.Y)
+  gfx.pos = v3.float(r3map.getPosition(state))
 end
 sys.registerHandler(sys.events.time, timeUpdate)
 
@@ -580,10 +580,10 @@ function gfx.drawTrack(w,h,zoom,pan)
           a.prop and b.prop and
           a.gradient == b.gradient and
         ( a.prop.name == b.prop.name  or
-          checkMatch("Temp") or 
-          checkMatch("Pressure") or 
-          checkMatch("Time") or 
-          checkMatch("Pedal")
+          checkMatch("temp") or 
+          checkMatch("pressure") or 
+          checkMatch("time") or 
+          checkMatch("pedal")
         ))
       then
         local merged = {math.min(a.minmax[1],b.minmax[1]), math.max(a.minmax[2],b.minmax[2])}

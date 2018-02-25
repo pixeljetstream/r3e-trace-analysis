@@ -25,7 +25,7 @@ local function initTrackView(frame, ID_TRACK)
   local canvas = wx.wxGLCanvas(subframe or frame, ID_TRACK, {
   wx.WX_GL_RGBA, 1, wx.WX_GL_DOUBLEBUFFER, 1, 
   wx.WX_GL_MIN_RED, 8, wx.WX_GL_MIN_GREEN, 8, wx.WX_GL_MIN_BLUE, 8, wx.WX_GL_MIN_ALPHA, 8,
-  wx.WX_GL_STENCIL_SIZE, 0, wx.WX_GL_DEPTH_SIZE, 0
+  wx.WX_GL_STENCIL_SIZE, 0, wx.WX_GL_DEPTH_SIZE, 0, wx.wx_GL_COMPAT_PROFILE, 0
   },
   wx.wxDefaultPosition, wx.wxSize(512,512), wx.wxEXPAND + wx.wxFULL_REPAINT_ON_RESIZE)
 

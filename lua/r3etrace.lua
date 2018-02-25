@@ -100,8 +100,8 @@ function _M.loadTrace(filename, forcefulldata)
   local posMax = {-100000,-100000,-100000}
   
   local function checkPos(state)
-    if (state.Player.Position.X ~= 0) then
-      local pos = {state.Player.Position.X,state.Player.Position.Y,state.Player.Position.Z}
+    if (state.player.position.x ~= 0) then
+      local pos = {state.player.position.x,state.player.position.y,state.player.position.z}
       for i=1,3 do 
         posMin[i] = math.min(posMin[i],pos[i])
         posMax[i] = math.max(posMax[i],pos[i])
@@ -119,24 +119,24 @@ function _M.loadTrace(filename, forcefulldata)
     for i=0,frames-1 do
       local state     = content + i
       
-      local timeValid = state.LapTimeCurrent >= 0
-      if (state.CompletedLaps ~= lastLap)
+      local timeValid = state.lap_time_current_self >= 0
+      if (state.completed_laps ~= lastLap)
       then
         if (lastTime) then
           local prev = content + (i-1)
           
-          table.insert(lapData, { frameBegin = lastFrame, frameCount = i - lastFrame, timeBegin=lastTime, time=contentTimes[i-1] - lastTime, laptime = state.LapTimePrevious, valid = lastTimeValid} )
+          table.insert(lapData, { frameBegin = lastFrame, frameCount = i - lastFrame, timeBegin=lastTime, time=contentTimes[i-1] - lastTime, laptime = state.lap_time_previous_self, valid = lastTimeValid} )
         end
         lastFrame = i
         lastTime  = contentTimes[i]
       end
-      lastLap       = state.CompletedLaps
+      lastLap       = state.completed_laps
       lastTimeValid = timeValid
       
       checkPos(state)
     end
     local prev = content + (frames-1)
-    table.insert(lapData, { frameBegin = lastFrame, frameCount = frames - lastFrame, timeBegin=lastTime, time=contentTimes[frames-1] - lastTime, laptime=prev.LapTimePrevious, valid = lastTimeValid} )
+    table.insert(lapData, { frameBegin = lastFrame, frameCount = frames - lastFrame, timeBegin=lastTime, time=contentTimes[frames-1] - lastTime, laptime=prev.lap_time_previous_self, valid = lastTimeValid} )
     laps = #lapData
   end
   

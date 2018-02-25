@@ -201,7 +201,7 @@ local function ffiToApi(ffidef)
   local function serialize(str,id,tab,lvl)
     lvl = string.rep(" ",lvl or 1)
     for i,k in ipairs(tab) do
-      str = str..string.gsub(id,"%$([%w]+)%$",k):gsub("##",lvl)
+      str = str..string.gsub(id,"%$([_%w]+)%$",k):gsub("##",lvl)
     end
     return str
   end
@@ -279,6 +279,14 @@ end
 
 local _C = {}
 
+function _C.getPosition(state)
+  return state.player.position.x,state.player.position.z,state.player.position.y
+end
+
+function _C.getTime(state)
+  return state.player.game_simulation_time  
+end
+
 function _C.init(fulldata) 
 
 local propertiesVec = {}
@@ -295,7 +303,7 @@ do
     local class = api.childs[classname]
     assert(class, classname)
     for i,v in pairs(class.childs) do
-      if (i:match("_")) then
+      if (i:match("^_")) then
       else
         local name = prepend..i
         local arraysize = v.description:match("%b[]")
@@ -324,8 +332,8 @@ do
               interpolate = v.description:match("r3e_float32") ~= nil or v.description:match("r3e_float64") ~= nil, 
               text        = text,
               vector      = false,
-              angle       = (name:match("Orientation") ~= nil or i:match("Rotation") ~= nil),
-              speed       = (i:match("Speed") ~= nil)
+              angle       = (name:match("orientation") ~= nil or i:match("rotation") ~= nil),
+              speed       = (i:match("speed") ~= nil)
               })
         end
       end
@@ -359,7 +367,7 @@ function _M.makeAccessor(tab, convert, nonumber)
   for i,v in ipairs(tab) do
     local k = v.name
     if (v.vector) then
-      str = str.."results["..i.."] = {state."..k..".X, state."..k..".Y,state."..k..".Z,}\n"
+      str = str.."results["..i.."] = {state."..k..".x, state."..k..".y,state."..k..".z,}\n"
     elseif (v.speed and convert) then
       str = str.."results["..i.."] = (state."..k..") * 3.6\n"
     elseif (v.angle and convert) then
@@ -415,6 +423,14 @@ function _M.printResults(props, results)
     end
     
   end
+end
+
+function _M.getPosition(state)
+  return state.player.position.x,state.player.position.z,state.player.position.y
+end
+
+function _M.getTime(state)
+  return state.player.game_simulation_time  
 end
 
 return _M

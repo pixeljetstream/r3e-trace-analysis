@@ -35,7 +35,7 @@ replay.dumpinterval = 2
 replay.dumpframes = 120
 
 -- if not set all properties are dumped
--- otherwise use strings like {"Player.GameSimulationTime",}
+-- otherwise use strings like {"player.game_simulation_time",}
 replay.dumpfilter = nil
 
 -- playback speed (frames or time are multiplied by this)
@@ -43,7 +43,7 @@ replay.playspeed = 1
 
 -------------------------------------------
 -- if not set all properties are shown
--- otherwise use string array like {"Player.GameSimulationTime",}
+-- otherwise use string array like {"player.game_simulation_time",}
 viewer.propertyfilter = nil
 
 -- for export and plots, sample at this resolution (seconds)
