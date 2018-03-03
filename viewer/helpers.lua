@@ -111,10 +111,10 @@ function helpers.getSampledData(trace, lap, numSamples, times, pos, gradient, se
           outputs[i][n] = res
           checkMinMax(i,res)
         end
-      else
+  
         selected.fnaccess(results, state)
         for i=1,num do
-          local res = selected.props[i].nonumber and 0 or results[i]
+          local res = selected.props[i].nonumber and 0 or tonumber(results[i]) or 0
           outputs[i][n] = res
           checkMinMax(i, res)
         end
@@ -173,7 +173,8 @@ function helpers.computeAllLapStats(trace)
       local state = trace.content + f
       fnaccess(results,state)
       for i=1,num do
-        local res = props[i].nonumber and 0 or results[i]
+        local res = props[i].nonumber and 0 or tonumber(results[i]) or 0
+        --assert(type(res) == "number", props[i].name)
         minmax[i][1] = math.min(minmax[i][1], res)
         minmax[i][2] = math.max(minmax[i][2], res)
         avg[i]       = avg[i] + res

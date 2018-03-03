@@ -1,4 +1,5 @@
 local ffi          = require "ffi"
+--R3E_FULL_DRIVERS = 128
 local r3e          = require "r3e"
 local r3emap       = require "r3emap"
 local r3etrace     = require "r3etrace"
@@ -24,7 +25,7 @@ local state        = ffi.new( fulldata and r3e.SHARED_TYPE_FULL or r3e.SHARED_TY
 ----------------------------------
 
 local chunksMem = {}
-local chunkFrames = 20 * 60 * math.floor(1000/pollrate) -- one chunk is 20 minutes
+local chunkFrames = 10 * 60 * math.floor(1000/pollrate) -- one chunk is 20 minutes
 local chunkCount = 0
 local framesMax = 0
 local frames = 0
@@ -39,8 +40,9 @@ local function allocateChunk()
   chunkCount = chunkCount + 1
   framesMax = chunkCount * chunkFrames
 end
+print ("allocate chunk", FRAMESIZE * chunkFrames)
 allocateChunk()
-
+print "post allocate"
 
 local lastLap
 local lastTimeValid

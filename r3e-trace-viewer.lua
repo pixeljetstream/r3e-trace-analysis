@@ -15,7 +15,7 @@ gCONFIG = config
 utils.loadInto("config.lua", config)
 utils.loadInto("config-user.lua", config)
 
-r3emap  = r3emap.init(fulldata)
+r3emap  = r3emap.init(config.viewer.fulldata)
 gR3EMAP = r3emap
 
 local constants = {

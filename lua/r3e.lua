@@ -1,5 +1,6 @@
 local ffi = require "ffi"
 
+local R3E_FULL_DRIVERS = R3E_FULL_DRIVERS or 128
 local R3E_SHARED_MEMORY_NAME = "$R3E"
 
 local R3E_DEFS_COMMON = [[
@@ -204,7 +205,7 @@ typedef struct
     r3e_float64 game_simulation_time;
 
     // Car world-space position
-    r3e_vec3_f64 Position;
+    r3e_vec3_f64 position;
 
     // Car world-space velocity
     // Unit: Meter per second (m/s)
@@ -730,7 +731,7 @@ typedef struct {
     // Number of cars (including the player) in the race
     r3e_int32 num_cars;
     // Contains name and vehicle info for all drivers in place order
-    r3e_driver_data AllDriversData1[128];
+    r3e_driver_data AllDriversData1[]]..R3E_FULL_DRIVERS..[[];
 } r3e_shared_full;
 ]]
 
@@ -938,7 +939,7 @@ local function isProcessRunning(name)
 end
 
 function _M.isR3Erunning()
-  return _M.emulation or isProcessRunning("RRRE.exe")
+  return _M.emulation or isProcessRunning("RRRE64.exe")
 end
 
 local function open()
