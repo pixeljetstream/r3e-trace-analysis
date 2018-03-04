@@ -72,7 +72,7 @@ function gfx.createSharedContext(canvas)
     context:SetCurrent(canvas)
     gl.glewInit()
     
-    assert(gl.__GLEW_VERSION_3_3 ~=0,             "OpenGL 3.3 capable hardware and driver required")
+    --assert(gl.__GLEW_VERSION_3_3 ~=0,             "OpenGL 3.3 capable hardware and driver required")
     
     --glu.enabledebug()
     
@@ -335,7 +335,7 @@ end
 sys.registerHandler(sys.events.lap, lapUpdate)
 
 local function timeUpdate(trace, lap, time, state)
-  gfx.pos = v3.float(r3map.getPosition(state))
+  gfx.pos = v3.float(r3emap.getPosition(state))
 end
 sys.registerHandler(sys.events.time, timeUpdate)
 

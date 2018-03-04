@@ -558,7 +558,7 @@ app = initApp()
 gAPP.app = app
 
 local args = _ARGS or {...}
-sys.traceOpenFile(args[2] or args[1]==nil and "trace_150712_170141.r3t")
+sys.traceOpenFile(args[2] or args[1]==nil and "trace_180303_151121.r3t")
 
 -- show the frame window
 app:Show(true)

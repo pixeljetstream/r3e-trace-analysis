@@ -731,7 +731,7 @@ typedef struct {
     // Number of cars (including the player) in the race
     r3e_int32 num_cars;
     // Contains name and vehicle info for all drivers in place order
-    r3e_driver_data AllDriversData1[]]..R3E_FULL_DRIVERS..[[];
+    r3e_driver_data all_drivers_data_1[]]..R3E_FULL_DRIVERS..[[];
 } r3e_shared_full;
 ]]
 

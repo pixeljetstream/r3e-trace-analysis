@@ -129,16 +129,15 @@ function helpers.getProps(convert)
   local allprops = r3emap.getAllProperties()
   local props = allprops
   
-  if (config.viewer.dumpfilter) then
+  if (config.viewer.propertyfilter) then
     -- get properties
-    
     local lkprops = {}
     for i,v in ipairs(allprops) do
-      lkprops[v[1]] = i
+      lkprops[v.name] = i
     end
     -- find 
     props = {}
-    for i,v in ipairs(config.replay.dumpfilter) do
+    for i,v in ipairs(config.viewer.propertyfilter) do
       local idx = lkprops[v] 
       if (idx) then
         table.insert(props, allprops[idx])

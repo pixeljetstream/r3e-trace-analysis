@@ -6,7 +6,7 @@ local r3emap       = require "r3emap"
 r3emap = r3map.init(true)
 
 ----------------------------------
-local state        = ffi.new( r3e.SHARED_TYPE )
+local state        = ffi.new( r3e.SHARED_TYPE_FULL )
 
 local config       = {record={}, replay={}, viewer={}}
 
@@ -33,10 +33,10 @@ local playrate     = config.replay.playrate or math.max(1,math.floor(trace.pollr
 
 do
   -- get properties
-  local allprops = r3emap.getAllProperties(false, true)
+  local allprops = r3emap.getAllProperties(false)
   local lkprops = {}
   for i,v in ipairs(allprops) do
-    lkprops[v[1]] = i
+    lkprops[v.name] = i
   end
   -- find 
   local used = {}
